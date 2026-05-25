@@ -3,38 +3,58 @@
  * Submits signed ExtensionVouchers on-chain by calling
  * CronStreamRouter.extendStreamWindowWithSignature().
  *
- * The agent wallet pays gas — it must be funded on the target chain.
- * Uses ethers v6 with automatic gas estimation + 20% buffer.
+ * Supports both Arbitrum Sepolia and Robinhood Chain Testnet from a single
+ * agent instance. Chain is selected per-request via chainId parameter.
  */
 
 import { ethers } from 'ethers';
 
-// ─── Minimal ABI (only the function we call) ─────────────────────────────────
+// ─── Minimal ABI ─────────────────────────────────────────────────────────────
 
 const ROUTER_ABI = [
   'function extendStreamWindowWithSignature(bytes32 streamId, uint256 extensionDurationSeconds, uint256 expiry, bytes calldata signature) external',
   'event StreamExtended(bytes32 indexed streamId, uint256 newValidUntil, uint256 newNonce)',
 ];
 
+// ─── Chain Config ─────────────────────────────────────────────────────────────
+
+const CHAIN_CONFIG = {
+  // Arbitrum Sepolia
+  421614: {
+    name:    'Arbitrum Sepolia',
+    rpcUrl:  () => process.env.ARBTRIUM_RPC_URL || process.env.ARBITRUM_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+  },
+  // Robinhood Chain Testnet
+  46630: {
+    name:    'Robinhood Chain Testnet',
+    rpcUrl:  () => process.env.ROBINHOOD_RPC_URL || 'https://rpc.testnet.chain.robinhood.com',
+  },
+};
+
 // ─── Internal Helpers ────────────────────────────────────────────────────────
 
 /**
- * Build an ethers Wallet connected to the RPC provider from env.
- * Throws clearly on missing config so the server fails fast at startup.
+ * Build an ethers Wallet connected to the correct chain.
+ *
+ * @param {number} chainId - 421614 (Arb Sepolia) or 46630 (Robinhood)
  */
-function getConnectedWallet() {
-  const privateKey       = process.env.AGENT_SIGNER_PRIVATE_KEY;
-  const rpcUrl           = process.env.RPC_URL;
-  const contractAddress  = process.env.CONTRACT_ADDRESS;
+function getConnectedWallet(chainId) {
+  const privateKey      = process.env.AGENT_SIGNER_PRIVATE_KEY;
+  const contractAddress = process.env.CONTRACT_ADDRESS;
 
   if (!privateKey)      throw new Error('[chainSubmitter] AGENT_SIGNER_PRIVATE_KEY is not set');
-  if (!rpcUrl)          throw new Error('[chainSubmitter] RPC_URL is not set');
   if (!contractAddress) throw new Error('[chainSubmitter] CONTRACT_ADDRESS is not set');
+
+  const chain = CHAIN_CONFIG[chainId];
+  if (!chain) throw new Error(`[chainSubmitter] Unsupported chainId: ${chainId}`);
+
+  const rpcUrl = chain.rpcUrl();
+  if (!rpcUrl) throw new Error(`[chainSubmitter] No RPC URL configured for ${chain.name}`);
 
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const wallet   = new ethers.Wallet(privateKey, provider);
 
-  return { wallet, contractAddress };
+  return { wallet, contractAddress, chainName: chain.name };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -48,8 +68,9 @@ function getConnectedWallet() {
  * @param {number}        params.nonce                    - current on-chain stream nonce
  * @param {number}        params.expiry                   - unix timestamp voucher expires
  * @param {string}        params.signature                - 65-byte EIP-712 signature (0x hex)
+ * @param {number}        params.chainId                  - 421614 or 46630 (defaults to env CHAIN_ID)
  *
- * @returns {Promise<{ txHash: string, blockNumber: number, gasUsed: string }>}
+ * @returns {Promise<{ txHash: string, blockNumber: number, gasUsed: string, chainId: number }>}
  */
 export async function submitExtension({
   streamId,
@@ -57,65 +78,78 @@ export async function submitExtension({
   nonce,
   expiry,
   signature,
+  chainId,
 }) {
-  const { wallet, contractAddress } = getConnectedWallet();
-
+  const targetChainId = chainId ?? Number(process.env.CHAIN_ID ?? 421614);
+  const { wallet, contractAddress, chainName } = getConnectedWallet(targetChainId);
   const router = new ethers.Contract(contractAddress, ROUTER_ABI, wallet);
 
   console.log(
-    `[chainSubmitter] Submitting extension | stream=${streamId} ` +
-    `nonce=${nonce} expiry=${expiry} duration=${extensionDurationSeconds}s`,
+    `[chainSubmitter] Submitting on ${chainName} | stream=${streamId} nonce=${nonce} expiry=${expiry}`,
   );
 
-  // Estimate gas and add 20% buffer to handle edge-case fluctuations
   let gasEstimate;
   try {
     gasEstimate = await router.extendStreamWindowWithSignature.estimateGas(
-      streamId,
-      extensionDurationSeconds,
-      expiry,
-      signature,
+      streamId, extensionDurationSeconds, expiry, signature,
     );
   } catch (err) {
-    throw new Error(`[chainSubmitter] Gas estimation failed: ${err.message}`);
+    throw new Error(`[chainSubmitter] Gas estimation failed on ${chainName}: ${err.message}`);
   }
 
   const gasLimit = (gasEstimate * 120n) / 100n;
 
   const tx = await router.extendStreamWindowWithSignature(
-    streamId,
-    extensionDurationSeconds,
-    expiry,
-    signature,
-    { gasLimit },
+    streamId, extensionDurationSeconds, expiry, signature, { gasLimit },
   );
 
-  console.log(`[chainSubmitter] Tx submitted — hash: ${tx.hash}`);
+  console.log(`[chainSubmitter] Tx submitted on ${chainName} — hash: ${tx.hash}`);
 
-  const receipt = await tx.wait(1); // wait for 1 confirmation
+  const receipt = await tx.wait(1);
 
   const result = {
     txHash:      receipt.hash,
     blockNumber: receipt.blockNumber,
     gasUsed:     receipt.gasUsed.toString(),
+    chainId:     targetChainId,
+    chainName,
   };
 
-  console.log(
-    `[chainSubmitter] ✓ Confirmed | block=${result.blockNumber} ` +
-    `gasUsed=${result.gasUsed} | stream=${streamId}`,
-  );
+  console.log(`[chainSubmitter] ✓ Confirmed on ${chainName} | block=${result.blockNumber} gasUsed=${result.gasUsed}`);
 
   return result;
 }
 
 /**
- * Fetch the agent wallet's current ETH balance on the target chain.
- * Used in the /health endpoint to warn when funds are low.
+ * Get agent wallet ETH balance on a specific chain.
  *
- * @returns {Promise<string>} Balance formatted in ETH (e.g. "0.05")
+ * @param {number} chainId - 421614 or 46630
+ * @returns {Promise<{ balance: string, chainName: string }>}
  */
-export async function getAgentBalance() {
-  const { wallet } = getConnectedWallet();
+export async function getAgentBalance(chainId) {
+  const targetChainId = chainId ?? Number(process.env.CHAIN_ID ?? 421614);
+  const { wallet, chainName } = getConnectedWallet(targetChainId);
   const balance = await wallet.provider.getBalance(wallet.address);
-  return ethers.formatEther(balance);
+  return {
+    balance:   ethers.formatEther(balance),
+    chainName,
+  };
+}
+
+/**
+ * Get balances on all supported chains.
+ *
+ * @returns {Promise<object>} { arbitrumSepolia: "0.05", robinhoodTestnet: "0.01" }
+ */
+export async function getAllBalances() {
+  const results = {};
+  for (const [chainId, config] of Object.entries(CHAIN_CONFIG)) {
+    try {
+      const { balance } = await getAgentBalance(Number(chainId));
+      results[config.name] = balance;
+    } catch {
+      results[config.name] = 'unavailable';
+    }
+  }
+  return results;
 }

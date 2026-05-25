@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@libsql/client": "^0.17.3",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.4",
     "express": "^5.2.1"

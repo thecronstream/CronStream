@@ -14,8 +14,8 @@ import crypto  from 'crypto';
 
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
-import { submitExtension, getAgentBalance }        from './chainSubmitter.js';
-import { alreadyProcessed, markProcessed, processedCount } from './replayGuard.js';
+import { submitExtension, getAllBalances }                    from './chainSubmitter.js';
+import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount } from './db.js';
 
 const app = express();
 
@@ -44,26 +44,30 @@ function getVoucherExpiry() {
 // ─── Health Check ─────────────────────────────────────────────────────────────
 
 app.get('/health', async (_req, res) => {
-  let signerAddress, signerError, agentBalance, balanceError;
+  let signerAddress, signerError, balances, balanceError;
 
   try { signerAddress = getSignerAddress(); }
   catch (err) { signerError = err.message; }
 
-  try { agentBalance = await getAgentBalance(); }
+  try { balances = await getAllBalances(); }
   catch (err) { balanceError = err.message; }
 
-  const lowBalance = agentBalance !== undefined && parseFloat(agentBalance) < 0.01;
+  const anyLowBalance = balances && Object.values(balances).some(
+    b => b !== 'unavailable' && parseFloat(b) < 0.01,
+  );
 
   res.json({
-    status:           (signerError || lowBalance) ? 'degraded' : 'ok',
-    signerAddress:    signerAddress   ?? null,
-    signerError:      signerError     ?? undefined,
-    agentBalance:     agentBalance    ?? null,     // ETH available to pay gas
-    balanceWarning:   lowBalance      ? 'Agent balance below 0.01 ETH — top up to avoid tx failures' : undefined,
-    balanceError:     balanceError    ?? undefined,
+    status:           (signerError || anyLowBalance) ? 'degraded' : 'ok',
+    signerAddress:    signerAddress ?? null,
+    signerError:      signerError   ?? undefined,
+    balances,                                      // ETH on each chain
+    balanceError:     balanceError  ?? undefined,
     contractAddress:  process.env.CONTRACT_ADDRESS ?? null,
-    chainId:          process.env.CHAIN_ID         ?? null,
-    extensionsServed: processedCount(),
+    chains: {
+      arbitrumSepolia:    { chainId: 421614, rpc: 'configured' },
+      robinhoodTestnet:   { chainId: 46630,  rpc: 'configured' },
+    },
+    extensionsServed: await getExtensionCount(),
     timestamp:        new Date().toISOString(),
   });
 });
@@ -255,7 +259,7 @@ app.post('/api/v1/webhook/github', async (req, res) => {
   const nonce    = parseInt(nonceMatch[1], 10);
 
   // ── Replay guard ──────────────────────────────────────────────────────────
-  if (alreadyProcessed(streamId, repo, pr.number)) {
+  if (await isAlreadyProcessed(streamId, repo, pr.number)) {
     console.log(`[webhook] Already processed stream=${streamId} PR#${pr.number} — skipping`);
     return res.json({ received: true, event, status: 'already_processed' });
   }
@@ -324,8 +328,18 @@ app.post('/api/v1/webhook/github', async (req, res) => {
     });
   }
 
-  // ── Mark as processed (replay guard) ─────────────────────────────────────
-  markProcessed(streamId, repo, pr.number);
+  // ── Persist to DB (replay guard + history) ───────────────────────────────
+  await recordExtension({
+    streamId,
+    repository:    repo,
+    prNumber:      pr.number,
+    chainId:       onChainResult.chainId,
+    chainName:     onChainResult.chainName,
+    txHash:        onChainResult.txHash,
+    blockNumber:   onChainResult.blockNumber,
+    gasUsed:       onChainResult.gasUsed,
+    voucherExpiry: expiry,
+  });
 
   console.log(`[webhook] ✓ Extension complete | stream=${streamId} | tx=${onChainResult.txHash}`);
 
@@ -354,6 +368,9 @@ app.use((_req, res) => {
 
 const PORT = Number(process.env.PORT ?? 5000);
 
+// ─── Init DB then start server ────────────────────────────────────────────────
+await initDb();
+
 app.listen(PORT, async () => {
   console.log('═══════════════════════════════════════════════════');
   console.log('  CronStream Agent Node');
@@ -364,9 +381,12 @@ app.listen(PORT, async () => {
 
   try {
     const addr    = getSignerAddress();
-    const balance = await getAgentBalance();
+    const balances = await getAllBalances();
     console.log(`  Signer:    ${addr}`);
-    console.log(`  Balance:   ${balance} ETH${parseFloat(balance) < 0.01 ? '  ⚠ LOW — top up!' : ''}`);
+    for (const [chain, bal] of Object.entries(balances)) {
+      const warn = bal !== 'unavailable' && parseFloat(bal) < 0.01 ? '  ⚠ LOW' : '';
+      console.log(`  ${chain}: ${bal} ETH${warn}`);
+    }
   } catch {
     console.warn('  Signer:    NOT SET — AGENT_SIGNER_PRIVATE_KEY or RPC_URL missing ⚠');
   }
