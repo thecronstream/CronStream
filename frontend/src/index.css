@@ -16,45 +16,53 @@
   #root { width: 100%; }
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: #12121A; }
-  ::-webkit-scrollbar-thumb { background: #1E1E2E; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb { background: #2A2A3E; border-radius: 2px; }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-accent text-dark font-semibold px-6 py-3 rounded-lg
-           hover:opacity-90 active:scale-95 transition-all duration-200 cursor-pointer inline-block;
+    @apply bg-accent text-dark font-semibold px-6 py-3 rounded-xl
+           hover:opacity-90 active:scale-[0.98] transition-all duration-150 cursor-pointer inline-flex items-center justify-center gap-2;
   }
   .btn-outline {
-    @apply border border-border text-white font-medium px-6 py-3 rounded-lg
-           hover:border-accent hover:text-accent transition-all duration-200 cursor-pointer inline-block;
+    @apply border border-border text-white font-medium px-6 py-3 rounded-xl
+           hover:border-accent/60 hover:bg-accent/5 transition-all duration-150 cursor-pointer inline-flex items-center justify-center gap-2;
   }
   .btn-ghost {
     @apply text-muted font-medium px-4 py-2 rounded-lg
-           hover:text-white hover:bg-surface transition-all duration-200 cursor-pointer;
+           hover:text-white hover:bg-surface transition-all duration-150 cursor-pointer;
+  }
+  .btn-danger {
+    @apply border border-red-500/30 text-red-400 font-medium px-4 py-2 rounded-xl
+           hover:bg-red-500/10 transition-all duration-150 cursor-pointer inline-flex items-center justify-center gap-2;
   }
   .card {
-    @apply bg-surface border border-border rounded-xl p-6;
+    @apply bg-surface border border-border rounded-2xl p-6;
+  }
+  .card-hover {
+    @apply bg-surface border border-border rounded-2xl p-6
+           hover:border-accent/30 hover:bg-surface/80 transition-all duration-200 cursor-pointer;
   }
   .input {
-    @apply bg-dark border border-border rounded-lg px-4 py-3 text-white w-full
-           focus:outline-none focus:border-accent transition-colors duration-200
-           placeholder-muted font-mono text-sm;
+    @apply bg-dark border border-border rounded-xl px-4 py-3 text-white w-full
+           focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/20
+           transition-all duration-200 placeholder-muted font-mono text-sm;
   }
   .label {
     @apply text-muted text-xs font-medium uppercase tracking-widest mb-2 block;
   }
   .badge-active {
-    @apply bg-accent/10 text-accent text-xs font-mono px-2 py-1 rounded-full border border-accent/20;
+    @apply bg-accent/10 text-accent text-xs font-mono px-2.5 py-1 rounded-full border border-accent/20 inline-flex items-center gap-1.5;
   }
   .badge-expired {
-    @apply bg-red-500/10 text-red-400 text-xs font-mono px-2 py-1 rounded-full border border-red-500/20;
+    @apply bg-red-500/10 text-red-400 text-xs font-mono px-2.5 py-1 rounded-full border border-red-500/20;
   }
-  .badge-cancelled {
-    @apply bg-yellow-500/10 text-yellow-400 text-xs font-mono px-2 py-1 rounded-full border border-yellow-500/20;
+  .badge-pending {
+    @apply bg-yellow-500/10 text-yellow-400 text-xs font-mono px-2.5 py-1 rounded-full border border-yellow-500/20;
   }
   .grid-bg {
-    background-image: linear-gradient(#1E1E2E55 1px, transparent 1px),
-                      linear-gradient(90deg, #1E1E2E55 1px, transparent 1px);
+    background-image: linear-gradient(#1E1E2E44 1px, transparent 1px),
+                      linear-gradient(90deg, #1E1E2E44 1px, transparent 1px);
     background-size: 40px 40px;
   }
   .stat-card {
@@ -66,4 +74,40 @@
   .stat-label {
     @apply text-muted text-xs uppercase tracking-widest;
   }
+  /* Live ticker — the number that ticks up */
+  .live-number {
+    @apply font-mono font-bold tabular-nums;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Modal backdrop */
+  .modal-backdrop {
+    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(8px);
+  }
+  .modal-panel {
+    @apply bg-surface border border-border rounded-2xl w-full max-w-md;
+    animation: slide-up 0.2s ease-out;
+  }
+  /* Progress bar track */
+  .progress-track {
+    @apply h-1 bg-border rounded-full overflow-hidden;
+  }
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-1000;
+  }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
 }

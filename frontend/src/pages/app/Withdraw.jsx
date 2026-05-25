@@ -1,89 +1,56 @@
-import { useState } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseUnits } from 'viem';
-import { CONTRACT_ADDRESS, ROUTER_ABI } from '../../lib/wagmi';
+import { useNavigate } from 'react-router-dom';
+import { useAccount } from 'wagmi';
+import { useProfile } from '../../hooks/useProfile';
+import { useStreams } from '../../hooks/useStreams';
+import StreamCard from '../../components/StreamCard';
 
+/**
+ * Withdraw page — shows all incoming streams with inline Withdraw buttons.
+ * No manual stream ID entry. Ever.
+ */
 export default function Withdraw() {
-  const { address } = useAccount();
-  const [streamId, setStreamId] = useState('');
-  const [amount,   setAmount]   = useState('');
-
-  const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess }     = useWaitForTransactionReceipt({ hash: txHash });
-
-  async function handleWithdraw(e) {
-    e.preventDefault();
-    if (!streamId || !amount) return;
-
-    writeContract({
-      address:      CONTRACT_ADDRESS,
-      abi:          ROUTER_ABI,
-      functionName: 'withdrawFromStream',
-      args:         [streamId, parseUnits(amount, 6)],
-    });
-  }
-
-  if (isSuccess) {
-    return (
-      <div className="p-8 max-w-lg flex flex-col items-center min-h-[60vh] justify-center text-center">
-        <div className="text-5xl mb-4">✓</div>
-        <h2 className="text-2xl font-bold mb-2">Withdrawal successful</h2>
-        <p className="text-muted text-sm mb-6">Tokens have been sent to your wallet.</p>
-        <div className="font-mono text-xs text-muted bg-surface border border-border rounded-lg px-4 py-2 mb-6 break-all">
-          {txHash}
-        </div>
-        <button className="btn-primary" onClick={() => { setStreamId(''); setAmount(''); }}>
-          Withdraw again
-        </button>
-      </div>
-    );
-  }
+  const { address }  = useAccount();
+  const { profile }  = useProfile(address);
+  const { received, loading } = useStreams();
+  const navigate     = useNavigate();
 
   return (
-    <div className="p-8 max-w-lg">
+    <div className="p-4 sm:p-6 w-full max-w-3xl">
       <h1 className="text-2xl font-bold mb-1">Withdraw</h1>
-      <p className="text-muted text-sm mb-8">Claim your earned tokens from a stream.</p>
+      <p className="text-muted text-sm mb-8">
+        Select a stream to withdraw from. Balance updates in real time.
+      </p>
 
-      <form onSubmit={handleWithdraw} className="card flex flex-col gap-5">
-        <div>
-          <label className="label">Stream ID</label>
-          <input
-            value={streamId}
-            onChange={e => setStreamId(e.target.value)}
-            placeholder="0x..."
-            className="input"
-            required
-          />
+      {loading ? (
+        <div className="flex flex-col gap-3">
+          {[1, 2].map(i => (
+            <div key={i} className="card animate-pulse">
+              <div className="h-4 bg-border rounded w-1/4 mb-3" />
+              <div className="h-3 bg-border rounded w-1/3" />
+            </div>
+          ))}
         </div>
-
-        <div>
-          <label className="label">Amount (USDC)</label>
-          <input
-            type="number"
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            placeholder="0.00"
-            min="0"
-            step="any"
-            className="input"
-            required
-          />
+      ) : received.length === 0 ? (
+        <div className="card border-dashed border-border/50 flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-surface border border-border flex items-center justify-center mb-4">
+            <span className="text-2xl font-mono text-muted">↓</span>
+          </div>
+          <p className="font-medium mb-1">No incoming streams</p>
+          <p className="text-muted text-sm max-w-xs">
+            When a company creates a stream to your wallet, it will appear here.
+          </p>
         </div>
-
-        <div className="bg-dark border border-border rounded-lg px-4 py-3 text-xs text-muted">
-          A 0.5% protocol fee is deducted from each withdrawal.
+      ) : (
+        <div className="flex flex-col gap-3">
+          {received.map(s => (
+            <StreamCard
+              key={s.streamId}
+              streamId={s.streamId}
+              role="contractor"
+            />
+          ))}
         </div>
-
-        <button
-          type="submit"
-          disabled={isPending || isConfirming}
-          className="btn-primary w-full text-center disabled:opacity-50"
-        >
-          {isPending    ? 'Confirm in wallet...' :
-           isConfirming ? 'Processing...' :
-           'Withdraw Tokens'}
-        </button>
-      </form>
+      )}
     </div>
   );
 }

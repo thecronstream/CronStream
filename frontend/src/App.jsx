@@ -5,7 +5,6 @@ import Landing      from './pages/Landing';
 import Connect      from './pages/Connect';
 import Setup        from './pages/app/Setup';
 import Dashboard    from './pages/app/Dashboard';
-import CreateStream from './pages/app/CreateStream';
 import StreamDetail from './pages/app/StreamDetail';
 import Withdraw     from './pages/app/Withdraw';
 import Settings     from './pages/app/Settings';
@@ -33,7 +32,8 @@ export default function App() {
         <Route index                element={<Navigate to="/app/dashboard" replace />} />
         <Route path="setup"         element={<Setup />} />
         <Route path="dashboard"     element={<Dashboard />} />
-        <Route path="stream/create" element={<CreateStream />} />
+        {/* /app/stream/create now opens the modal — redirect to dashboard */}
+        <Route path="stream/create" element={<Navigate to="/app/dashboard" replace />} />
         <Route path="stream/:id"    element={<StreamDetail />} />
         <Route path="withdraw"      element={<Withdraw />} />
         <Route path="settings"      element={<Settings />} />

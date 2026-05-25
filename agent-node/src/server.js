@@ -15,7 +15,7 @@ import crypto  from 'crypto';
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
 import { submitExtension, getAllBalances }                    from './chainSubmitter.js';
-import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getDb } from './db.js';
+import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getDb, upsertProfile, getProfile, getProfileByApiKey, searchProfiles, isUsernameTaken } from './db.js';
 
 const app = express();
 
@@ -29,6 +29,43 @@ app.use(
     },
   }),
 );
+
+// ─── API Key Auth ─────────────────────────────────────────────────────────────
+// Supports two key formats:
+//   1. Generated key  — random cs_live_<32 chars>, stored in DB profiles.api_key
+//   2. Derived key    — cs_live_ + base64(walletAddress), reversible without DB
+
+async function verifyApiKey(req, res, next) {
+  const auth = (req.headers['authorization'] ?? '').trim();
+  if (!auth.startsWith('Bearer cs_live_')) {
+    return res.status(401).json({ error: 'Unauthorized — provide your API key as: Authorization: Bearer <key>' });
+  }
+
+  const key = auth.slice('Bearer '.length);
+
+  // 1. Check DB for a stored (generated) key
+  try {
+    const profile = await getProfileByApiKey(key);
+    if (profile) {
+      req.callerAddress = profile.address;
+      return next();
+    }
+  } catch {
+    // DB unavailable — fall through to derived key check
+  }
+
+  // 2. Fall back to derived key (base64-encoded wallet address)
+  try {
+    const encoded = key.slice('cs_live_'.length);
+    const padded  = encoded + '='.repeat((4 - encoded.length % 4) % 4);
+    const address = Buffer.from(padded, 'base64').toString('utf8').toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(address)) throw new Error('bad address');
+    req.callerAddress = address;
+    return next();
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized — invalid API key' });
+  }
+}
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 
@@ -98,7 +135,7 @@ app.get('/health', async (_req, res) => {
 //   voucher:      { streamId, extensionDurationSeconds, nonce, expiry, signature }
 // }
 
-app.post('/api/v1/verify-milestone', async (req, res) => {
+app.post('/api/v1/verify-milestone', verifyApiKey, async (req, res) => {
   const {
     streamId,
     contractorAddress,
@@ -358,6 +395,122 @@ app.post('/api/v1/webhook/github', async (req, res) => {
   });
 });
 
+// ─── GET /api/v1/username/check/:username ─────────────────────────────────────
+// Returns { available: bool } — called during signup to validate uniqueness.
+
+app.get('/api/v1/username/check/:username', async (req, res) => {
+  const { username } = req.params;
+  const { address }  = req.query; // optional — exclude this address from the check
+
+  if (!/^[a-z0-9_-]{3,30}$/.test(username)) {
+    return res.json({ available: false, reason: '3–30 chars, letters/numbers/_/- only' });
+  }
+  try {
+    const taken = await isUsernameTaken(username, address || null);
+    return res.json({ available: !taken });
+  } catch (err) {
+    console.error('[username:check]', err);
+    return res.status(500).json({ error: 'Check failed' });
+  }
+});
+
+// ─── GET  /api/v1/profile/:address ───────────────────────────────────────────
+// Returns a user's profile. Used by the frontend on every load.
+
+app.get('/api/v1/profile/:address', async (req, res) => {
+  const { address } = req.params;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    return res.status(400).json({ error: 'Invalid address' });
+  }
+  try {
+    const profile = await getProfile(address);
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    return res.json({ profile });
+  } catch (err) {
+    console.error('[profile:get]', err);
+    return res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// ─── POST /api/v1/profile ─────────────────────────────────────────────────────
+// Create or update a profile. Role is set once and cannot be changed via this
+// endpoint if the profile already exists (enforced below).
+
+app.post('/api/v1/profile', async (req, res) => {
+  const { address, role, name, github, website, avatarUrl, apiKey } = req.body;
+
+  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    return res.status(400).json({ error: 'Valid address required' });
+  }
+  if (!role || !['company', 'contractor'].includes(role)) {
+    return res.status(400).json({ error: 'role must be "company" or "contractor"' });
+  }
+
+  try {
+    // If profile exists, preserve the original role — role is immutable after creation
+    const existing  = await getProfile(address);
+    const finalRole = existing ? existing.role : role;
+
+    // Validate username uniqueness if provided
+    const { username } = req.body;
+    if (username) {
+      if (!/^[a-z0-9_-]{3,30}$/.test(username)) {
+        return res.status(400).json({ error: 'Username: 3–30 chars, lowercase letters/numbers/_/- only' });
+      }
+      const taken = await isUsernameTaken(username, address);
+      if (taken) {
+        return res.status(409).json({ error: 'Username already taken' });
+      }
+    }
+
+    // apiKey: undefined = don't touch, null = clear it, string = set it
+    await upsertProfile({ address, username, role: finalRole, name, github, website, avatarUrl, apiKey });
+    const profile = await getProfile(address);
+    return res.json({ profile });
+  } catch (err) {
+    console.error('[profile:post]', err);
+    return res.status(500).json({ error: 'Failed to save profile' });
+  }
+});
+
+// ─── GET /api/v1/contractor/lookup ───────────────────────────────────────────
+// Search for contractors by GitHub username, name, or wallet address.
+// Query params: ?q=<search term>
+// Used by companies on the dashboard to find and hire contractors.
+
+app.get('/api/v1/contractor/lookup', async (req, res) => {
+  const { q } = req.query;
+  if (!q || q.trim().length < 2) {
+    return res.status(400).json({ error: 'Query must be at least 2 characters' });
+  }
+
+  const term = q.trim();
+
+  try {
+    // Wallet address — exact
+    if (/^0x[a-fA-F0-9]{40}$/i.test(term)) {
+      const profile = await getProfile(term);
+      return res.json({ results: profile ? [profile] : [] });
+    }
+
+    // @username or plain username — exact match first (unique)
+    const uname = term.startsWith('@') ? term.slice(1) : term;
+    const byUsername = await searchProfiles({ username: uname, role: 'contractor' });
+    if (byUsername.length > 0) return res.json({ results: byUsername });
+
+    // GitHub handle — exact
+    const byGithub = await searchProfiles({ github: uname, role: 'contractor' });
+    if (byGithub.length > 0) return res.json({ results: byGithub });
+
+    // Name — partial
+    const byName = await searchProfiles({ name: term, role: 'contractor' });
+    return res.json({ results: byName });
+  } catch (err) {
+    console.error('[contractor:lookup]', err);
+    return res.status(500).json({ error: 'Lookup failed' });
+  }
+});
+
 // ─── POST /api/v1/register-stream ────────────────────────────────────────────
 //
 // Called by the frontend immediately after a createStream tx confirms.
@@ -371,7 +524,7 @@ app.post('/api/v1/webhook/github', async (req, res) => {
 //   ratePerSecond: "1234"  (bigint as string)
 // }
 
-app.post('/api/v1/register-stream', async (req, res) => {
+app.post('/api/v1/register-stream', verifyApiKey, async (req, res) => {
   const { streamId, repo, recipient, ratePerSecond } = req.body;
 
   if (!streamId || !repo) {
@@ -439,18 +592,24 @@ app.use((_req, res) => {
 const PORT = Number(process.env.PORT ?? 5000);
 
 // ─── Init DB then start server ────────────────────────────────────────────────
-await initDb();
+try {
+  await initDb();
+} catch (err) {
+  console.warn('[db] ⚠ Failed to initialize database:', err.message);
+  console.warn('[db] ⚠ Server will start in degraded mode — profile features unavailable');
+}
 
 app.listen(PORT, async () => {
   console.log('═══════════════════════════════════════════════════');
   console.log('  CronStream Agent Node');
   console.log('═══════════════════════════════════════════════════');
   console.log(`  Port:      ${PORT}`);
-  console.log(`  Chain ID:  ${process.env.CHAIN_ID  ?? 'NOT SET ⚠'}`);
+  console.log(`  Chain ID:  ${process.env.CHAIN_ID       ?? 'NOT SET ⚠'}`);
   console.log(`  Contract:  ${process.env.CONTRACT_ADDRESS ?? 'NOT SET ⚠'}`);
+  console.log(`  DB:        ${process.env.TURSO_DATABASE_URL ? '✓ configured' : '⚠ not configured (degraded mode)'}`);
 
   try {
-    const addr    = getSignerAddress();
+    const addr     = getSignerAddress();
     const balances = await getAllBalances();
     console.log(`  Signer:    ${addr}`);
     for (const [chain, bal] of Object.entries(balances)) {

@@ -67,13 +67,13 @@ export default function Landing() {
       </nav>
 
       {/* Hero */}
-      <section className="relative pt-32 pb-24 px-6 grid-bg">
+      <section className="relative pt-28 sm:pt-32 pb-16 sm:pb-24 px-4 sm:px-6 grid-bg">
         <div className="absolute inset-0 bg-gradient-to-b from-accent/5 via-transparent to-transparent pointer-events-none" />
         <div className="max-w-4xl mx-auto text-center relative">
           <div className="inline-flex items-center border border-accent/30 bg-accent/5 text-accent text-xs font-mono px-4 py-1.5 rounded-full mb-8">
             Deployed on Arbitrum & Robinhood Chain
           </div>
-          <h1 className="text-5xl sm:text-7xl font-bold tracking-tight leading-[1.05] mb-6">
+          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.05] mb-6">
             Stream money
             <br />
             <span className="text-accent">while work ships.</span>

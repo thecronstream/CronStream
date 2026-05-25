@@ -8,6 +8,7 @@ import '@rainbow-me/rainbowkit/styles.css';
 
 import { wagmiConfig } from './lib/wagmi';
 import App from './App';
+import { CreateStreamProvider } from './context/CreateStreamContext';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -23,7 +24,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           fontStack:             'system',
         })}>
           <BrowserRouter>
-            <App />
+            <CreateStreamProvider>
+              <App />
+            </CreateStreamProvider>
           </BrowserRouter>
         </RainbowKitProvider>
       </QueryClientProvider>
