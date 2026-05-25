@@ -167,8 +167,16 @@ export default function CreateStreamModal() {
   const [createdStreamId, setCreatedStreamId] = useState(null);
   const [selectedContractor, setSelectedContractor] = useState(null);
 
+  const VERIFICATION_SOURCES = [
+    { key: 'github',    label: 'GitHub',    placeholder: 'owner/repo',                         hint: 'Merged PRs + passing CI' },
+    { key: 'jira',      label: 'Jira',      placeholder: 'https://acme.atlassian.net / ABC',    hint: 'Ticket moved to Done' },
+    { key: 'bitbucket', label: 'Bitbucket', placeholder: 'workspace/repo',                      hint: 'Merged PRs + pipelines' },
+    { key: 'figma',     label: 'Figma',     placeholder: 'https://figma.com/file/…',            hint: 'Approved frames / published' },
+  ];
+
   const [form, setForm] = useState({
-    token: TOKENS[0].address, ratePerDay: '', durationDays: '', githubRepo: '',
+    token: TOKENS[0].address, ratePerDay: '', durationDays: '',
+    verificationSource: 'github', verificationTarget: '',
   });
 
   // Apply prefill (e.g. from CompanyDashboard contractor search)
@@ -195,7 +203,7 @@ export default function CreateStreamModal() {
   function handleClose() {
     if (step === 1 || step === 2) return; // block close mid-tx
     setStep(0);
-    setForm({ token: TOKENS[0].address, ratePerDay: '', durationDays: '', githubRepo: '' });
+    setForm({ token: TOKENS[0].address, ratePerDay: '', durationDays: '', verificationSource: 'github', verificationTarget: '' });
     setSelectedContractor(null);
     setCreatedStreamId(null);
     closeModal();
@@ -227,8 +235,15 @@ export default function CreateStreamModal() {
         if (log) {
           const decoded = publicClient.decodeEventLog({ abi: [event], data: log.data, topics: log.topics });
           setCreatedStreamId(decoded.streamId);
-          if (form.githubRepo) {
-            await registerStreamWithAgent({ streamId: decoded.streamId, repo: form.githubRepo, recipient: recipientAddr, ratePerSecond: ratePerSecond.toString() });
+          if (form.verificationTarget) {
+            await registerStreamWithAgent({
+              streamId:           decoded.streamId,
+              repo:               form.verificationSource === 'github' ? form.verificationTarget : null,
+              verificationSource: form.verificationSource,
+              verificationTarget: form.verificationTarget,
+              recipient:          recipientAddr,
+              ratePerSecond:      ratePerSecond.toString(),
+            });
           }
         }
       } catch (e) { console.warn('Post-create (non-fatal):', e); }
@@ -298,13 +313,42 @@ export default function CreateStreamModal() {
                 </div>
               </div>
 
+              {/* Verification source */}
               <div>
-                <label className="label">GitHub repo <span className="text-muted/50 normal-case tracking-normal font-normal">(agent verification)</span></label>
-                <RepoPicker
-                  githubHandle={profile?.github ?? null}
-                  value={form.githubRepo}
-                  onChange={val => setForm(f => ({ ...f, githubRepo: val }))}
-                />
+                <label className="label">Verification source <span className="text-muted/50 normal-case tracking-normal font-normal">— agent checks this to extend the stream</span></label>
+                {/* Source tabs */}
+                <div className="grid grid-cols-4 gap-1.5 mb-3 p-1 bg-dark border border-border rounded-xl">
+                  {VERIFICATION_SOURCES.map(src => (
+                    <button key={src.key} type="button"
+                      onClick={() => setForm(f => ({ ...f, verificationSource: src.key, verificationTarget: '' }))}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all
+                        ${form.verificationSource === src.key
+                          ? 'bg-accent/10 text-accent border border-accent/30'
+                          : 'text-muted hover:text-white'}`}>
+                      {src.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Source-specific input */}
+                {form.verificationSource === 'github' ? (
+                  <RepoPicker
+                    githubHandle={profile?.github ?? null}
+                    value={form.verificationTarget}
+                    onChange={val => setForm(f => ({ ...f, verificationTarget: val }))}
+                  />
+                ) : (
+                  <div>
+                    <input
+                      value={form.verificationTarget}
+                      onChange={e => setForm(f => ({ ...f, verificationTarget: e.target.value }))}
+                      placeholder={VERIFICATION_SOURCES.find(s => s.key === form.verificationSource)?.placeholder}
+                      className="input"
+                    />
+                    <p className="text-xs text-muted mt-1.5">
+                      {VERIFICATION_SOURCES.find(s => s.key === form.verificationSource)?.hint}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {totalCostDisplay && (
@@ -367,7 +411,7 @@ export default function CreateStreamModal() {
                   ['Token',    selectedToken.symbol],
                   ['Rate',     `${form.ratePerDay} ${selectedToken.symbol}/day`],
                   ['Duration', `${form.durationDays} days`],
-                  form.githubRepo ? ['Repo', form.githubRepo] : null,
+                  form.verificationTarget ? [VERIFICATION_SOURCES.find(s=>s.key===form.verificationSource)?.label ?? 'Source', form.verificationTarget] : null,
                   ['Deposit',  `${totalCostDisplay} ${selectedToken.symbol}`],
                 ].filter(Boolean).map(([label, value], i, arr) => (
                   <div key={label} className={`flex justify-between px-4 py-3 ${i === arr.length - 1 ? 'bg-accent/5' : ''}`}>
@@ -394,9 +438,9 @@ export default function CreateStreamModal() {
                 </p>
                 <p className="text-muted text-sm">{form.ratePerDay} {selectedToken.symbol}/day — starting now</p>
               </div>
-              {form.githubRepo && (
+              {form.verificationTarget && (
                 <div className="text-xs text-accent font-mono bg-accent/5 border border-accent/20 rounded-xl px-4 py-2 w-full">
-                  Agent watching {form.githubRepo}
+                  Agent verifying via {VERIFICATION_SOURCES.find(s=>s.key===form.verificationSource)?.label} · {form.verificationTarget}
                 </div>
               )}
               {createTxHash && (

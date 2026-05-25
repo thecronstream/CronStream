@@ -113,30 +113,72 @@ export default function CompanyDashboard() {
     openModal({ prefill: { recipient: contractor.address } });
   }
 
-  const greeting = profile?.name ? `${profile.name}` : 'Dashboard';
+  const initials = profile?.name
+    ? profile.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
 
   return (
     <div className="p-4 sm:p-6 w-full">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">{greeting}</h1>
-          {profile?.website && (
-            <p className="text-muted text-xs sm:text-sm mt-0.5">
-              <a href={profile.website} target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">
-                {profile.website.replace(/^https?:\/\//, '')}
-              </a>
-            </p>
-          )}
+      <div className="flex items-start justify-between gap-4 mb-6">
+
+        {/* Identity */}
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Avatar */}
+          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
+            {profile?.avatar
+              ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+              : <span className="text-accent text-sm font-mono font-bold">{initials}</span>
+            }
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-bold truncate">{profile?.name ?? 'Dashboard'}</h1>
+              {profile?.username && (
+                <span className="text-xs text-muted font-mono hidden sm:inline">@{profile.username}</span>
+              )}
+              <span className="text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/5 text-accent font-mono shrink-0">
+                company
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              {profile?.website && (
+                <a href={profile.website} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors truncate">
+                  ↗ {profile.website.replace(/^https?:\/\//, '')}
+                </a>
+              )}
+              {profile?.github && (
+                <a href={`https://github.com/${profile.github}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors font-mono hidden sm:inline">
+                  GitHub
+                </a>
+              )}
+              {profile?.twitter && (
+                <a href={`https://x.com/${profile.twitter}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors hidden sm:inline">
+                  X
+                </a>
+              )}
+              {profile?.linkedin && (
+                <a href={`https://linkedin.com/in/${profile.linkedin}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors hidden sm:inline">
+                  LinkedIn
+                </a>
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Agent pill */}
           {online !== null && (
             <div className={`hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full border
               ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-accent pulse-dot' : 'bg-muted'}`} />
-              {online ? `Agent online` : 'Agent offline'}
+              {online ? 'Agent online' : 'Agent offline'}
             </div>
           )}
           <button className="btn-primary py-2 px-4 text-sm" onClick={() => openModal()}>

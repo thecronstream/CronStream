@@ -63,21 +63,74 @@ export default function ContractorDashboard() {
   const streamIds   = received.map(s => s.streamId);
   const activeCount = received.length;
 
-  const greeting = profile?.name
-    ? `Hey, ${profile.name.split(' ')[0]} 👋`
-    : 'Your earnings';
+  const initials = profile?.name
+    ? profile.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
 
   return (
     <div className="p-4 sm:p-6 w-full">
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 gap-3">
-        <h1 className="text-xl sm:text-2xl font-bold">{greeting}</h1>
-        {profile?.github && (
-          <a href={`https://github.com/${profile.github}`} target="_blank" rel="noopener noreferrer"
-            className="text-xs text-muted hover:text-accent font-mono transition-colors">
-            ↗ {profile.github}
-          </a>
+      <div className="flex items-center justify-between gap-4 mb-6">
+
+        {/* Identity */}
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Avatar */}
+          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
+            {profile?.avatar
+              ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+              : <span className="text-accent text-sm font-mono font-bold">{initials}</span>
+            }
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-bold truncate">
+                {profile?.name ?? 'Your earnings'}
+              </h1>
+              {profile?.username && (
+                <span className="text-xs text-muted font-mono hidden sm:inline">@{profile.username}</span>
+              )}
+              <span className="text-xs px-2 py-0.5 rounded-full border border-border text-muted font-mono shrink-0">
+                contractor
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              {profile?.github && (
+                <a href={`https://github.com/${profile.github}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent font-mono transition-colors">
+                  GitHub
+                </a>
+              )}
+              {profile?.twitter && (
+                <a href={`https://x.com/${profile.twitter}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors">
+                  X
+                </a>
+              )}
+              {profile?.linkedin && (
+                <a href={`https://linkedin.com/in/${profile.linkedin}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors">
+                  LinkedIn
+                </a>
+              )}
+              {profile?.farcaster && (
+                <a href={`https://warpcast.com/${profile.farcaster}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent transition-colors">
+                  Farcaster
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Agent status */}
+        {online !== null && (
+          <div className={`hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full border shrink-0
+            ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-accent pulse-dot' : 'bg-muted'}`} />
+            {online ? 'Agent online' : 'Agent offline'}
+          </div>
         )}
       </div>
 

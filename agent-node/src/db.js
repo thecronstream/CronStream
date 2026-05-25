@@ -11,6 +11,7 @@
  */
 
 import { createClient } from '@libsql/client';
+import { encrypt, decrypt, hmacApiKey, isHmacKey, decryptProfile } from './encryption.js';
 
 // ─── Client ──────────────────────────────────────────────────────────────────
 
@@ -53,13 +54,15 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS stream_registry (
-    stream_id    TEXT    PRIMARY KEY,
-    chain_id     INTEGER NOT NULL,
-    github_repo  TEXT,
-    sender       TEXT,
-    recipient    TEXT,
-    token        TEXT,
-    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+    stream_id           TEXT    PRIMARY KEY,
+    chain_id            INTEGER NOT NULL,
+    github_repo         TEXT,
+    verification_source TEXT    NOT NULL DEFAULT 'github',
+    verification_target TEXT,
+    sender              TEXT,
+    recipient           TEXT,
+    token               TEXT,
+    created_at          INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
   CREATE TABLE IF NOT EXISTS profiles (
@@ -68,6 +71,9 @@ const SCHEMA = `
     role        TEXT    NOT NULL CHECK (role IN ('company', 'contractor')),
     name        TEXT,
     github      TEXT,
+    twitter     TEXT,
+    linkedin    TEXT,
+    farcaster   TEXT,
     website     TEXT,
     avatar_url  TEXT,
     api_key     TEXT    UNIQUE,
@@ -96,12 +102,25 @@ export async function initDb() {
     await db.execute(sql);
   }
 
-  // Add api_key column to existing DBs (idempotent — ignore if already exists)
-  try {
-    await db.execute('ALTER TABLE profiles ADD COLUMN api_key TEXT UNIQUE');
-    console.log('[db] ✓ Migrated: added api_key column');
-  } catch {
-    // Column already exists — fine
+  // Migrations — idempotent, safe to run on existing DBs
+  const migrations = [
+    'ALTER TABLE profiles ADD COLUMN api_key              TEXT UNIQUE',
+    'ALTER TABLE profiles ADD COLUMN twitter              TEXT',
+    'ALTER TABLE profiles ADD COLUMN linkedin             TEXT',
+    'ALTER TABLE profiles ADD COLUMN farcaster            TEXT',
+    'ALTER TABLE profiles ADD COLUMN jira_url             TEXT',
+    'ALTER TABLE profiles ADD COLUMN jira_email           TEXT',
+    'ALTER TABLE profiles ADD COLUMN jira_token           TEXT',
+    'ALTER TABLE profiles ADD COLUMN bitbucket_workspace  TEXT',
+    'ALTER TABLE profiles ADD COLUMN bitbucket_user       TEXT',
+    'ALTER TABLE profiles ADD COLUMN bitbucket_password   TEXT',
+    'ALTER TABLE profiles ADD COLUMN figma_token          TEXT',
+    // stream_registry — verification source support
+    "ALTER TABLE stream_registry ADD COLUMN verification_source TEXT NOT NULL DEFAULT 'github'",
+    'ALTER TABLE stream_registry ADD COLUMN verification_target TEXT',
+  ];
+  for (const sql of migrations) {
+    try { await db.execute(sql); } catch { /* column already exists */ }
   }
 
   console.log('[db] ✓ Schema initialized');
@@ -191,16 +210,41 @@ export async function getExtensionCount() {
 // ─── Stream Registry ──────────────────────────────────────────────────────────
 
 /**
- * Register a stream so the agent knows which GitHub repo to watch.
+ * Register a stream so the agent knows which source + target to verify.
+ *
+ * @param {object} params
+ * @param {string}  params.streamId
+ * @param {number}  params.chainId
+ * @param {string}  [params.githubRepo]           — kept for backwards compatibility
+ * @param {string}  [params.verificationSource]   — 'github' | 'jira' | 'bitbucket' | 'figma'
+ * @param {string}  [params.verificationTarget]   — repo path, ticket key, Figma URL, etc.
+ * @param {string}  [params.sender]               — company wallet address
+ * @param {string}  [params.recipient]            — contractor wallet address
+ * @param {string}  [params.token]                — ERC-20 token address
  */
-export async function registerStream({ streamId, chainId, githubRepo, sender, recipient, token }) {
+export async function registerStream({
+  streamId, chainId, githubRepo,
+  verificationSource, verificationTarget,
+  sender, recipient, token,
+}) {
   const db = getDb();
   if (!db) return;
+
+  // verificationTarget falls back to githubRepo for legacy callers
+  const finalTarget = verificationTarget ?? githubRepo ?? null;
+  const finalSource = verificationSource ?? 'github';
+
   await db.execute({
     sql: `INSERT OR REPLACE INTO stream_registry
-            (stream_id, chain_id, github_repo, sender, recipient, token)
-          VALUES (?, ?, ?, ?, ?, ?)`,
-    args: [streamId, chainId, githubRepo ?? null, sender ?? null, recipient ?? null, token ?? null],
+            (stream_id, chain_id, github_repo, verification_source, verification_target, sender, recipient, token)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      streamId, chainId,
+      githubRepo ?? finalTarget,   // keep github_repo populated for legacy queries
+      finalSource,
+      finalTarget,
+      sender ?? null, recipient ?? null, token ?? null,
+    ],
   });
 }
 
@@ -222,52 +266,103 @@ export async function getStream(streamId) {
 /**
  * Upsert a user profile keyed by wallet address.
  */
-export async function upsertProfile({ address, username, role, name, github, website, avatarUrl, apiKey }) {
+export async function upsertProfile({ address, username, role, name, github, twitter, linkedin, farcaster, website, avatarUrl, apiKey,
+  jiraUrl, jiraEmail, jiraToken, bitbucketWorkspace, bitbucketUser, bitbucketPassword, figmaToken }) {
   const db = getDb();
   if (!db) return;
+
+  // ── Encrypt sensitive fields before writing ─────────────────────────────────
+  const encJiraToken          = jiraToken         ? encrypt(jiraToken)         : null;
+  const encBitbucketPassword  = bitbucketPassword ? encrypt(bitbucketPassword) : null;
+  const encFigmaToken         = figmaToken        ? encrypt(figmaToken)        : null;
+
+  // API key: store as HMAC so it is never written to disk in plaintext.
+  // NULL signals "clear the key"; undefined means "don't touch it".
+  const hashedApiKey = apiKey ? hmacApiKey(apiKey) : null;
+  const apiKeySentinel = apiKey === null ? 'clear' : 'keep';
+
   await db.execute({
-    sql: `INSERT INTO profiles (address, username, role, name, github, website, avatar_url, api_key)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    sql: `INSERT INTO profiles
+            (address, username, role, name, github, twitter, linkedin, farcaster, website, avatar_url, api_key,
+             jira_url, jira_email, jira_token, bitbucket_workspace, bitbucket_user, bitbucket_password, figma_token)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(address) DO UPDATE SET
-            username   = COALESCE(excluded.username, profiles.username),
-            name       = excluded.name,
-            github     = excluded.github,
-            website    = excluded.website,
-            avatar_url = excluded.avatar_url,
-            api_key    = CASE WHEN excluded.api_key IS NULL AND ? = 'clear'
-                              THEN NULL
-                              ELSE COALESCE(excluded.api_key, profiles.api_key)
-                         END,
-            updated_at = unixepoch()`,
+            username             = COALESCE(excluded.username, profiles.username),
+            name                 = excluded.name,
+            github               = excluded.github,
+            twitter              = excluded.twitter,
+            linkedin             = excluded.linkedin,
+            farcaster            = excluded.farcaster,
+            website              = excluded.website,
+            avatar_url           = excluded.avatar_url,
+            api_key              = CASE WHEN excluded.api_key IS NULL AND ? = 'clear'
+                                        THEN NULL
+                                        ELSE COALESCE(excluded.api_key, profiles.api_key) END,
+            jira_url             = COALESCE(excluded.jira_url,            profiles.jira_url),
+            jira_email           = COALESCE(excluded.jira_email,          profiles.jira_email),
+            jira_token           = COALESCE(excluded.jira_token,          profiles.jira_token),
+            bitbucket_workspace  = COALESCE(excluded.bitbucket_workspace, profiles.bitbucket_workspace),
+            bitbucket_user       = COALESCE(excluded.bitbucket_user,      profiles.bitbucket_user),
+            bitbucket_password   = COALESCE(excluded.bitbucket_password,  profiles.bitbucket_password),
+            figma_token          = COALESCE(excluded.figma_token,         profiles.figma_token),
+            updated_at           = unixepoch()`,
     args: [
       address.toLowerCase(),
-      username   ? username.toLowerCase().trim() : null,
+      username  ? username.toLowerCase().trim() : null,
       role,
-      name       ?? null,
-      github     ?? null,
-      website    ?? null,
-      avatarUrl  ?? null,
-      apiKey     ?? null,
-      apiKey === null ? 'clear' : 'keep',  // sentinel to distinguish "clear key" from "don't touch key"
+      name      ?? null,
+      github    ?? null,
+      twitter   ?? null,
+      linkedin  ?? null,
+      farcaster ?? null,
+      website   ?? null,
+      avatarUrl ?? null,
+      hashedApiKey,              // HMAC of api_key, or null
+      jiraUrl             ?? null,
+      jiraEmail           ?? null,
+      encJiraToken,              // AES-256-GCM encrypted
+      bitbucketWorkspace  ?? null,
+      bitbucketUser       ?? null,
+      encBitbucketPassword,      // AES-256-GCM encrypted
+      encFigmaToken,             // AES-256-GCM encrypted
+      apiKeySentinel,
     ],
   });
 }
 
 /**
- * Look up a profile by its stored API key.
+ * Look up a profile by API key.
+ * The key is HMAC'd before the DB lookup — the plaintext is never stored.
+ * Also handles legacy plaintext keys stored before encryption was enabled.
  */
 export async function getProfileByApiKey(apiKey) {
   const db = getDb();
   if (!db) return null;
+
+  // Try HMAC lookup first (new keys)
+  try {
+    const hashed = hmacApiKey(apiKey);
+    const result = await db.execute({
+      sql:  'SELECT * FROM profiles WHERE api_key = ? LIMIT 1',
+      args: [hashed],
+    });
+    if (result.rows.length > 0) return decryptProfile(result.rows[0]);
+  } catch {
+    // ENCRYPTION_KEY missing — fall through to legacy plaintext lookup
+  }
+
+  // Legacy fallback: plaintext api_key (pre-encryption rows)
+  // Only matches if the stored value is NOT an HMAC digest
   const result = await db.execute({
-    sql:  'SELECT * FROM profiles WHERE api_key = ? LIMIT 1',
+    sql:  "SELECT * FROM profiles WHERE api_key = ? AND api_key NOT LIKE 'hmac:v1:%' LIMIT 1",
     args: [apiKey],
   });
-  return result.rows[0] ?? null;
+  return result.rows.length > 0 ? decryptProfile(result.rows[0]) : null;
 }
 
 /**
  * Fetch a profile by wallet address (case-insensitive).
+ * Returns with sensitive fields decrypted — ready for agent use.
  */
 export async function getProfile(address) {
   const db = getDb();
@@ -276,7 +371,7 @@ export async function getProfile(address) {
     sql:  'SELECT * FROM profiles WHERE address = ? LIMIT 1',
     args: [address.toLowerCase()],
   });
-  return result.rows[0] ?? null;
+  return result.rows.length > 0 ? decryptProfile(result.rows[0]) : null;
 }
 
 /**
@@ -299,7 +394,8 @@ export async function searchProfiles({ github, username, name, role } = {}) {
     sql:  `SELECT * FROM profiles ${where} ORDER BY updated_at DESC LIMIT 20`,
     args,
   });
-  return result.rows;
+  // Decrypt each row — searchProfiles is used internally, not for HTTP responses
+  return result.rows.map(row => decryptProfile(row));
 }
 
 /**

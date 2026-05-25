@@ -16,6 +16,7 @@ import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
 import { submitExtension, getAllBalances }                    from './chainSubmitter.js';
 import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getDb, upsertProfile, getProfile, getProfileByApiKey, searchProfiles, isUsernameTaken } from './db.js';
+import { publicProfile } from './encryption.js';
 
 const app = express();
 
@@ -25,7 +26,9 @@ const app = express();
 app.use(
   express.json({
     verify: (req, _res, buf) => {
-      req.rawBody = buf;
+      // buf is a Buffer when content-type is application/json
+      // Guard against edge cases where buf may be undefined
+      if (buf && buf.length) req.rawBody = buf;
     },
   }),
 );
@@ -140,16 +143,21 @@ app.post('/api/v1/verify-milestone', verifyApiKey, async (req, res) => {
     streamId,
     contractorAddress,
     githubPayload,
+    verificationSource: bodySource,
+    verificationTarget: bodyTarget,
     nonce,
     extensionDurationSeconds: clientDuration,
   } = req.body;
 
   // ── Input validation ──────────────────────────────────────────────────────
   const missing = [];
-  if (!streamId)          missing.push('streamId');
-  if (!contractorAddress) missing.push('contractorAddress');
-  if (!githubPayload)     missing.push('githubPayload');
+  if (!streamId)           missing.push('streamId');
+  if (!contractorAddress)  missing.push('contractorAddress');
   if (nonce === undefined) missing.push('nonce');
+
+  // githubPayload required only for github source
+  const explicitSource = bodySource ?? 'github';
+  if (explicitSource === 'github' && !githubPayload) missing.push('githubPayload');
 
   if (missing.length > 0) {
     return res.status(400).json({
@@ -161,19 +169,47 @@ app.post('/api/v1/verify-milestone', verifyApiKey, async (req, res) => {
   if (!/^0x[a-fA-F0-9]{64}$/.test(streamId)) {
     return res.status(400).json({ success: false, error: 'Invalid streamId — must be 0x-prefixed 32-byte hex' });
   }
-
   if (!/^0x[a-fA-F0-9]{40}$/.test(contractorAddress)) {
     return res.status(400).json({ success: false, error: 'Invalid contractorAddress — must be 0x-prefixed 20-byte hex' });
   }
-
   if (typeof nonce !== 'number' || !Number.isInteger(nonce) || nonce < 0) {
     return res.status(400).json({ success: false, error: 'nonce must be a non-negative integer' });
   }
 
-  // ── 3-Layer verification ──────────────────────────────────────────────────
+  // ── Resolve verification source + target ──────────────────────────────────
+  // Priority: request body → stream registry → default 'github'
+  let verificationSource = explicitSource;
+  let verificationTarget = bodyTarget ?? null;
+
+  if (!bodySource || !bodyTarget) {
+    try {
+      const stream = await getStream(streamId);
+      if (stream) {
+        verificationSource = bodySource ?? stream.verification_source ?? 'github';
+        verificationTarget = bodyTarget ?? stream.verification_target ?? stream.github_repo ?? null;
+      }
+    } catch { /* DB unavailable — use body values */ }
+  }
+
+  // ── Load company credentials from caller's profile ────────────────────────
+  let companyCredentials = null;
+  if (verificationSource !== 'github') {
+    try {
+      companyCredentials = await getProfile(req.callerAddress);
+    } catch { /* DB unavailable — verifyMilestone will throw a config error */ }
+  }
+
+  // ── Verification ──────────────────────────────────────────────────────────
   let verificationResult;
   try {
-    verificationResult = await verifyMilestone({ streamId, contractorAddress, githubPayload });
+    verificationResult = await verifyMilestone({
+      streamId,
+      contractorAddress,
+      verificationSource,
+      verificationTarget,
+      githubPayload,
+      companyCredentials,
+    });
   } catch (err) {
     if (err instanceof VerificationError) {
       return res.status(422).json({ success: false, error: err.message, failedLayer: err.layer });
@@ -232,9 +268,16 @@ app.post('/api/v1/webhook/github', async (req, res) => {
       return res.status(401).json({ error: 'Missing X-Hub-Signature-256 header' });
     }
 
+    const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(req.body));
+
+    if (!rawBody || !rawBody.length) {
+      console.warn('[webhook] rawBody unavailable — cannot verify signature');
+      return res.status(400).json({ error: 'Could not read request body for signature verification' });
+    }
+
     const expectedSig = `sha256=${crypto
       .createHmac('sha256', secret)
-      .update(req.rawBody)
+      .update(rawBody)
       .digest('hex')}`;
 
     const sigBuffer      = Buffer.from(githubSig);
@@ -301,27 +344,44 @@ app.post('/api/v1/webhook/github', async (req, res) => {
     return res.json({ received: true, event, status: 'already_processed' });
   }
 
-  // ── Build synthetic githubPayload for verifyMilestone ────────────────────
-  // workflow_run is not available in a pull_request event.
-  // We use the CI status from pr.head.sha checks via the PR status field.
-  // For now we treat a merged PR as implicitly CI-passed (GitHub protects merges
-  // via branch protection rules). Callers who need explicit CI can send
-  // workflow_run.conclusion via a custom header.
+  // ── Load stream metadata + company credentials ────────────────────────────
+  let verificationSource = 'github';
+  let verificationTarget = null;
+  let companyCredentials = null;
+
+  try {
+    const stream = await getStream(streamId);
+    if (stream) {
+      verificationSource = stream.verification_source ?? 'github';
+      verificationTarget = stream.verification_target ?? stream.github_repo ?? null;
+      // Load company's integration credentials from their profile
+      if (stream.sender && verificationSource !== 'github') {
+        companyCredentials = await getProfile(stream.sender);
+      }
+    }
+  } catch { /* DB unavailable — fall through with github defaults */ }
+
+  // ── Build githubPayload for github-source streams ─────────────────────────
+  // workflow_run is absent from pull_request events — treat a merged PR as
+  // CI-passed unless the caller overrides via X-CI-Conclusion header.
   const ciConclusion = req.headers['x-ci-conclusion'] ?? 'success';
 
-  const githubPayload = {
+  const githubPayload = verificationSource === 'github' ? {
     repository:   payload.repository,
     pull_request: pr,
     workflow_run: { conclusion: ciConclusion },
-  };
+  } : null;
 
-  // ── 3-layer verification ──────────────────────────────────────────────────
+  // ── Verification ──────────────────────────────────────────────────────────
   let verificationResult;
   try {
     verificationResult = await verifyMilestone({
       streamId,
-      contractorAddress: pr.user?.login ?? 'unknown', // GitHub login for logging
+      contractorAddress: pr.user?.login ?? 'unknown',
+      verificationSource,
+      verificationTarget,
       githubPayload,
+      companyCredentials,
     });
   } catch (err) {
     if (err instanceof VerificationError) {
@@ -425,7 +485,8 @@ app.get('/api/v1/profile/:address', async (req, res) => {
   try {
     const profile = await getProfile(address);
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
-    return res.json({ profile });
+    // Strip credentials — return connection status booleans instead
+    return res.json({ profile: publicProfile(profile) });
   } catch (err) {
     console.error('[profile:get]', err);
     return res.status(500).json({ error: 'Failed to fetch profile' });
@@ -437,7 +498,10 @@ app.get('/api/v1/profile/:address', async (req, res) => {
 // endpoint if the profile already exists (enforced below).
 
 app.post('/api/v1/profile', async (req, res) => {
-  const { address, role, name, github, website, avatarUrl, apiKey } = req.body;
+  const { address, role, name, github, twitter, linkedin, farcaster, website, avatarUrl, apiKey,
+    jira_url: jiraUrl, jira_email: jiraEmail, jira_token: jiraToken,
+    bitbucket_workspace: bitbucketWorkspace, bitbucket_user: bitbucketUser, bitbucket_password: bitbucketPassword,
+    figma_token: figmaToken } = req.body;
 
   if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return res.status(400).json({ error: 'Valid address required' });
@@ -463,10 +527,11 @@ app.post('/api/v1/profile', async (req, res) => {
       }
     }
 
-    // apiKey: undefined = don't touch, null = clear it, string = set it
-    await upsertProfile({ address, username, role: finalRole, name, github, website, avatarUrl, apiKey });
+    await upsertProfile({ address, username, role: finalRole, name, github, twitter, linkedin, farcaster, website, avatarUrl, apiKey,
+      jiraUrl, jiraEmail, jiraToken, bitbucketWorkspace, bitbucketUser, bitbucketPassword, figmaToken });
     const profile = await getProfile(address);
-    return res.json({ profile });
+    // Strip credentials before sending to client
+    return res.json({ profile: publicProfile(profile) });
   } catch (err) {
     console.error('[profile:post]', err);
     return res.status(500).json({ error: 'Failed to save profile' });
@@ -490,21 +555,21 @@ app.get('/api/v1/contractor/lookup', async (req, res) => {
     // Wallet address — exact
     if (/^0x[a-fA-F0-9]{40}$/i.test(term)) {
       const profile = await getProfile(term);
-      return res.json({ results: profile ? [profile] : [] });
+      return res.json({ results: profile ? [publicProfile(profile)] : [] });
     }
 
     // @username or plain username — exact match first (unique)
     const uname = term.startsWith('@') ? term.slice(1) : term;
     const byUsername = await searchProfiles({ username: uname, role: 'contractor' });
-    if (byUsername.length > 0) return res.json({ results: byUsername });
+    if (byUsername.length > 0) return res.json({ results: byUsername.map(publicProfile) });
 
     // GitHub handle — exact
     const byGithub = await searchProfiles({ github: uname, role: 'contractor' });
-    if (byGithub.length > 0) return res.json({ results: byGithub });
+    if (byGithub.length > 0) return res.json({ results: byGithub.map(publicProfile) });
 
     // Name — partial
     const byName = await searchProfiles({ name: term, role: 'contractor' });
-    return res.json({ results: byName });
+    return res.json({ results: byName.map(publicProfile) });
   } catch (err) {
     console.error('[contractor:lookup]', err);
     return res.status(500).json({ error: 'Lookup failed' });
@@ -525,10 +590,20 @@ app.get('/api/v1/contractor/lookup', async (req, res) => {
 // }
 
 app.post('/api/v1/register-stream', verifyApiKey, async (req, res) => {
-  const { streamId, repo, recipient, ratePerSecond } = req.body;
+  const {
+    streamId,
+    repo,                    // legacy field — kept for backwards compatibility
+    verificationSource,
+    verificationTarget,
+    recipient,
+    chainId: bodyChainId,
+  } = req.body;
 
-  if (!streamId || !repo) {
-    return res.status(400).json({ error: 'streamId and repo are required' });
+  // Accept either new-style verificationTarget or legacy repo field
+  const resolvedTarget = verificationTarget ?? repo ?? null;
+
+  if (!streamId || !resolvedTarget) {
+    return res.status(400).json({ error: 'streamId and verificationTarget (or repo) are required' });
   }
 
   if (!/^0x[a-fA-F0-9]{64}$/.test(streamId)) {
@@ -538,15 +613,24 @@ app.post('/api/v1/register-stream', verifyApiKey, async (req, res) => {
   try {
     await registerStream({
       streamId,
-      chainId:    421614, // default; could be extended with a chainId body param
-      githubRepo: repo,
-      sender:     null,
-      recipient:  recipient ?? null,
-      token:      null,
+      chainId:            bodyChainId ?? 421614,
+      githubRepo:         verificationSource === 'github' || !verificationSource ? resolvedTarget : null,
+      verificationSource: verificationSource ?? 'github',
+      verificationTarget: resolvedTarget,
+      sender:             req.callerAddress ?? null,   // company's wallet from API key auth
+      recipient:          recipient ?? null,
+      token:              null,
     });
 
-    console.log(`[register-stream] ✓ Registered stream=${streamId} repo=${repo}`);
-    return res.json({ success: true, streamId, repo });
+    console.log(
+      `[register-stream] ✓ Registered stream=${streamId} ` +
+      `source=${verificationSource ?? 'github'} target=${resolvedTarget}`,
+    );
+    return res.json({
+      success: true, streamId,
+      verificationSource: verificationSource ?? 'github',
+      verificationTarget: resolvedTarget,
+    });
   } catch (err) {
     console.error('[register-stream] DB error:', err);
     return res.status(500).json({ error: 'Failed to register stream' });
@@ -607,6 +691,7 @@ app.listen(PORT, async () => {
   console.log(`  Chain ID:  ${process.env.CHAIN_ID       ?? 'NOT SET ⚠'}`);
   console.log(`  Contract:  ${process.env.CONTRACT_ADDRESS ?? 'NOT SET ⚠'}`);
   console.log(`  DB:        ${process.env.TURSO_DATABASE_URL ? '✓ configured' : '⚠ not configured (degraded mode)'}`);
+  console.log(`  Encrypt:   ${process.env.ENCRYPTION_KEY    ? '✓ configured' : '⚠ NOT SET — credential storage disabled'}`);
 
   try {
     const addr     = getSignerAddress();

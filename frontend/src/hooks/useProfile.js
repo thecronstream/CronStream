@@ -65,12 +65,23 @@ export function useProfile(address) {
 
     const payload = {
       address,
-      username:  data.username  ?? null,
-      role:      data.role,
-      name:      data.name      ?? null,
-      github:    data.github    ?? null,
-      website:   data.website   ?? null,
-      avatarUrl: data.avatar    ?? null,
+      username:             data.username             ?? null,
+      role:                 data.role,
+      name:                 data.name                 ?? null,
+      github:               data.github               ?? null,
+      twitter:              data.twitter               ?? null,
+      linkedin:             data.linkedin              ?? null,
+      farcaster:            data.farcaster             ?? null,
+      website:              data.website               ?? null,
+      avatarUrl:            data.avatar                ?? null,
+      jira_url:             data.jira_url             ?? null,
+      jira_email:           data.jira_email           ?? null,
+      jira_token:           data.jira_token           ?? null,
+      bitbucket_workspace:  data.bitbucket_workspace  ?? null,
+      bitbucket_user:       data.bitbucket_user       ?? null,
+      bitbucket_password:   data.bitbucket_password   ?? null,
+      figma_token:          data.figma_token           ?? null,
+      ...(data.apiKey !== undefined ? { apiKey: data.apiKey } : {}),
     };
 
     // Optimistic local update

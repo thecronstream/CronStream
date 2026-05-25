@@ -34,9 +34,7 @@ export default function AppShell() {
         onClick={() => { navigate('/'); setSidebarOpen(false); }}
       >
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-accent/10 border border-accent/20 flex items-center justify-center">
-            <span className="text-accent text-xs font-mono font-bold">C</span>
-          </div>
+          <img src="/logo.png" alt="CronStream" className="w-6 h-6 rounded-md object-contain" />
           <span className="text-white font-semibold text-sm tracking-tight">CronStream</span>
         </div>
         {profile?.role && (
@@ -74,29 +72,52 @@ export default function AppShell() {
         ))}
       </nav>
 
-      {/* Wallet — compact */}
+      {/* User identity footer */}
       <div className="px-3 pb-3 pt-2 border-t border-border shrink-0">
         <ConnectButton.Custom>
           {({ account, chain, openAccountModal, openChainModal, mounted }) => {
             if (!mounted || !account) return null;
             return (
-              <div className="flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors">
+              <div className="rounded-xl border border-border bg-dark/60 overflow-hidden">
+                {/* Chain row */}
                 <button
                   onClick={openChainModal}
-                  className="shrink-0 w-5 h-5 rounded-full overflow-hidden border border-border hover:border-accent/40 transition-colors"
-                  title={chain?.name}
+                  className="w-full flex items-center gap-2 px-3 py-2 border-b border-border hover:bg-white/5 transition-colors"
                 >
-                  {chain?.hasIcon && chain.iconUrl
-                    ? <img src={chain.iconUrl} alt={chain.name} className="w-full h-full" />
-                    : <div className="w-full h-full bg-accent/20 flex items-center justify-center text-accent text-[9px] font-mono">{chain?.name?.[0] ?? '?'}</div>
-                  }
+                  <div className="w-4 h-4 rounded-full overflow-hidden border border-border shrink-0">
+                    {chain?.hasIcon && chain.iconUrl
+                      ? <img src={chain.iconUrl} alt={chain.name} className="w-full h-full" />
+                      : <div className="w-full h-full bg-accent/20 flex items-center justify-center text-accent text-[8px] font-mono">{chain?.name?.[0] ?? '?'}</div>
+                    }
+                  </div>
+                  <span className="text-xs text-muted truncate flex-1 text-left">{chain?.name ?? 'Unknown network'}</span>
+                  <span className="text-muted text-xs">⇅</span>
                 </button>
-                <button onClick={openAccountModal} className="flex-1 min-w-0 text-left">
-                  <div className="text-xs font-medium text-white truncate leading-tight">
-                    {profile?.name || `${account.address.slice(0, 6)}…${account.address.slice(-4)}`}
+
+                {/* Profile row */}
+                <button onClick={openAccountModal} className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/5 transition-colors text-left">
+                  {/* Avatar */}
+                  <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center overflow-hidden shrink-0">
+                    {profile?.avatar
+                      ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+                      : <span className="text-accent text-[10px] font-mono font-bold">{initials}</span>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-white truncate leading-tight">
+                      {profile?.name || `${account.address.slice(0, 6)}…${account.address.slice(-4)}`}
+                    </div>
+                    {profile?.username && (
+                      <div className="text-[10px] text-muted font-mono truncate leading-tight">@{profile.username}</div>
+                    )}
                   </div>
                   {profile?.role && (
-                    <div className="text-xs text-muted capitalize leading-tight">{profile.role}</div>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border shrink-0
+                      ${profile.role === 'company'
+                        ? 'border-accent/30 bg-accent/5 text-accent'
+                        : 'border-border text-muted'}`}>
+                      {profile.role}
+                    </span>
                   )}
                 </button>
               </div>
@@ -145,7 +166,7 @@ export default function AppShell() {
             <span className="w-3 h-px bg-white self-start" />
           </button>
 
-          <span className="text-accent font-mono font-semibold text-sm">CronStream</span>
+          <img src="/logo.png" alt="CronStream" className="h-6 w-auto object-contain" />
 
           <ConnectButton.Custom>
             {({ account, chain, openAccountModal, openChainModal, mounted }) => {
