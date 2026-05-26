@@ -17,17 +17,21 @@ const ROUTER_ABI = [
 ];
 
 // ─── Chain Config ─────────────────────────────────────────────────────────────
+// Each chain entry resolves its RPC URL and contract address from env at runtime.
+// Chain-specific vars take priority; CONTRACT_ADDRESS is the legacy fallback.
 
 const CHAIN_CONFIG = {
   // Arbitrum Sepolia
   421614: {
-    name:    'Arbitrum Sepolia',
-    rpcUrl:  () => process.env.ARBTRIUM_RPC_URL || process.env.ARBITRUM_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+    name:            'Arbitrum Sepolia',
+    rpcUrl:          () => process.env.ARBITRUM_RPC_URL || process.env.ARBTRIUM_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+    contractAddress: () => process.env.CONTRACT_ADDRESS_ARB_SEPOLIA || process.env.CONTRACT_ADDRESS,
   },
-  // Robinhood Chain Testnet
+  // Robinhood Chain
   46630: {
-    name:    'Robinhood Chain Testnet',
-    rpcUrl:  () => process.env.ROBINHOOD_RPC_URL || 'https://rpc.testnet.chain.robinhood.com',
+    name:            'Robinhood Chain',
+    rpcUrl:          () => process.env.ROBINHOOD_RPC_URL,
+    contractAddress: () => process.env.CONTRACT_ADDRESS_ROBINHOOD || process.env.CONTRACT_ADDRESS,
   },
 };
 
@@ -39,17 +43,17 @@ const CHAIN_CONFIG = {
  * @param {number} chainId - 421614 (Arb Sepolia) or 46630 (Robinhood)
  */
 function getConnectedWallet(chainId) {
-  const privateKey      = process.env.AGENT_SIGNER_PRIVATE_KEY;
-  const contractAddress = process.env.CONTRACT_ADDRESS;
-
-  if (!privateKey)      throw new Error('[chainSubmitter] AGENT_SIGNER_PRIVATE_KEY is not set');
-  if (!contractAddress) throw new Error('[chainSubmitter] CONTRACT_ADDRESS is not set');
+  const privateKey = process.env.AGENT_SIGNER_PRIVATE_KEY;
+  if (!privateKey) throw new Error('[chainSubmitter] AGENT_SIGNER_PRIVATE_KEY is not set');
 
   const chain = CHAIN_CONFIG[chainId];
   if (!chain) throw new Error(`[chainSubmitter] Unsupported chainId: ${chainId}`);
 
-  const rpcUrl = chain.rpcUrl();
-  if (!rpcUrl) throw new Error(`[chainSubmitter] No RPC URL configured for ${chain.name}`);
+  const rpcUrl          = chain.rpcUrl();
+  const contractAddress = chain.contractAddress();
+
+  if (!rpcUrl)          throw new Error(`[chainSubmitter] No RPC URL configured for ${chain.name} — set ROBINHOOD_RPC_URL or ARBITRUM_RPC_URL`);
+  if (!contractAddress) throw new Error(`[chainSubmitter] No contract address for ${chain.name} — set CONTRACT_ADDRESS_ARB_SEPOLIA / CONTRACT_ADDRESS_ROBINHOOD`);
 
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const wallet   = new ethers.Wallet(privateKey, provider);

@@ -119,10 +119,9 @@ app.get('/health', async (_req, res) => {
     signerError:      signerError   ?? undefined,
     balances,                                      // ETH on each chain
     balanceError:     balanceError  ?? undefined,
-    contractAddress:  process.env.CONTRACT_ADDRESS ?? null,
-    chains: {
-      arbitrumSepolia:    { chainId: 421614, rpc: 'configured' },
-      robinhoodTestnet:   { chainId: 46630,  rpc: 'configured' },
+    contracts: {
+      arbitrumSepolia: { chainId: 421614, address: process.env.CONTRACT_ADDRESS_ARB_SEPOLIA || process.env.CONTRACT_ADDRESS || null },
+      robinhoodChain:  { chainId: 46630,  address: process.env.CONTRACT_ADDRESS_ROBINHOOD  || process.env.CONTRACT_ADDRESS || null },
     },
     extensionsServed: await getExtensionCount(),
     timestamp:        new Date().toISOString(),
@@ -705,8 +704,10 @@ app.listen(PORT, async () => {
   console.log('  CronStream Agent Node');
   console.log('═══════════════════════════════════════════════════');
   console.log(`  Port:      ${PORT}`);
-  console.log(`  Chain ID:  ${process.env.CHAIN_ID       ?? 'NOT SET ⚠'}`);
-  console.log(`  Contract:  ${process.env.CONTRACT_ADDRESS ?? 'NOT SET ⚠'}`);
+  const arbAddr  = process.env.CONTRACT_ADDRESS_ARB_SEPOLIA || process.env.CONTRACT_ADDRESS;
+  const rhAddr   = process.env.CONTRACT_ADDRESS_ROBINHOOD  || process.env.CONTRACT_ADDRESS;
+  console.log(`  Arb Sepolia: ${arbAddr ?? 'NOT SET ⚠'}`);
+  console.log(`  Robinhood:   ${rhAddr  ?? 'NOT SET ⚠'}`);
   console.log(`  DB:        ${process.env.TURSO_DATABASE_URL ? '✓ configured' : '⚠ not configured (degraded mode)'}`);
   console.log(`  Encrypt:   ${process.env.ENCRYPTION_KEY    ? '✓ configured' : '⚠ NOT SET — credential storage disabled'}`);
 

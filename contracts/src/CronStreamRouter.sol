@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
-    import  {ICronStream} from "./ICronStream.sol";
-  import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-   import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-  import  {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-  import  {ECDSA} from  "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {ICronStream}   from "./ICronStream.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Pausable}       from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IERC20}         from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20}      from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ECDSA}          from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 
-contract CronStreamRouter is ICronStream, AccessControl {
+contract CronStreamRouter is ICronStream, AccessControl, Pausable {
     using SafeERC20 for IERC20;
 
 
 
-  // Roles
- bytes32 public constant AGENT_MANAGER_ROLE = keccak256("AGENT_MGR");
- bytes32 public constant FEE_MANAGER_ROLE  = keccak256("FEE_MGR");
+    // Roles
+    bytes32 public constant AGENT_MANAGER_ROLE = keccak256("AGENT_MGR");
+    bytes32 public constant FEE_MANAGER_ROLE   = keccak256("FEE_MGR");
+    bytes32 public constant PAUSER_ROLE        = keccak256("PAUSER");
 
 
  
@@ -65,6 +67,7 @@ contract CronStreamRouter is ICronStream, AccessControl {
       _grantRole(DEFAULT_ADMIN_ROLE, _admin);
       _grantRole(AGENT_MANAGER_ROLE, _admin);
       _grantRole(FEE_MANAGER_ROLE,   _admin);
+      _grantRole(PAUSER_ROLE,        _admin);
 
       DOMAIN_SEPARATOR = keccak256(abi.encode(
           DOMAIN_TYPEHASH,
@@ -135,7 +138,7 @@ function _onlyFeeManager() internal view {
     /// @param initialDurationSeconds  Agreed contract duration in seconds.
     /// @return streamId         Unique bytes32 identifier for this stream.
 
-    function createStream(address recipient,address token,uint256 ratePerSecond,uint256 initialDurationSeconds) external override  returns  (bytes32 streamId) {
+    function createStream(address recipient,address token,uint256 ratePerSecond,uint256 initialDurationSeconds) external override whenNotPaused returns (bytes32 streamId) {
     require (recipient != address(0), "Recipient cannot be zero address");
     require (token != address(0), "Token cannot be zero address");
     require (ratePerSecond > 0, "Rate per second must be greater than zero");
@@ -154,19 +157,24 @@ function _onlyFeeManager() internal view {
         uint256 startTime = block.timestamp;
         uint256 streamValidUntil = startTime + initialDurationSeconds;
     
-        uint256 totalDeposited = ratePerSecond * initialDurationSeconds;
-        IERC20(token).safeTransferFrom(msg.sender,
-        address(this), totalDeposited);
+        uint256 intendedDeposit = ratePerSecond * initialDurationSeconds;
+
+        // Balance-delta pattern — protects against fee-on-transfer / deflationary tokens.
+        // We only credit what physically arrived in the vault, not what was requested.
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        IERC20(token).safeTransferFrom(msg.sender, address(this), intendedDeposit);
+        uint256 actualDeposited = IERC20(token).balanceOf(address(this)) - balanceBefore;
+
         streams[streamId] = Stream({
-            sender: msg.sender,
-            recipient: recipient,
-            token: token,
-            ratePerSecond: ratePerSecond,
-            startTime: startTime,
+            sender:          msg.sender,
+            recipient:       recipient,
+            token:           token,
+            ratePerSecond:   ratePerSecond,
+            startTime:       startTime,
             streamValidUntil: streamValidUntil,
-             totalDeposited: totalDeposited,
-            totalWithdrawn: 0,
-            nonce:0
+            totalDeposited:  actualDeposited,   // truth — not the requested amount
+            totalWithdrawn:  0,
+            nonce:           0
         });
         emit StreamCreated(streamId, msg.sender, recipient, ratePerSecond);
         return streamId;
@@ -183,7 +191,7 @@ function _onlyFeeManager() internal view {
     /// @param expiry                    Unix timestamp after which the voucher is invalid.
     /// @param signature                 65-byte EIP-712 signature from the agentSigner.
 
-    function extendStreamWindowWithSignature(bytes32 streamId, uint256 extensionDurationSeconds,  uint256 expiry, bytes calldata signature) external{
+    function extendStreamWindowWithSignature(bytes32 streamId, uint256 extensionDurationSeconds,  uint256 expiry, bytes calldata signature) external whenNotPaused {
         Stream storage s = streams[streamId];
         if (s.sender == address(0)) revert StreamDoesNotExist();
         if (block.timestamp > s.streamValidUntil) revert SafetyWindowExpired();
@@ -215,7 +223,7 @@ function _onlyFeeManager() internal view {
     /// @param streamId  The stream to withdraw from.
     /// @param amount    Token amount to withdraw (must not exceed available balance).
 
-    function withdrawFromStream(bytes32 streamId, uint256 amount)  external{
+    function withdrawFromStream(bytes32 streamId, uint256 amount) external whenNotPaused {
         Stream storage s = streams[streamId];
         if (s.sender == address(0)) revert StreamDoesNotExist();
         if (msg.sender != s.recipient) revert NotRecipient();
@@ -316,6 +324,8 @@ function _onlyFeeManager() internal view {
       return totalEarned - s.totalWithdrawn;
   }
 
+  
+
   /// @notice Returns the withdrawable balance for a stream (public view).
   /// @dev Reverts if the stream does not exist. Delegates to _balanceOf internally.
   /// @param streamId  Stream to query.
@@ -357,7 +367,23 @@ function _onlyFeeManager() internal view {
       uint256 oldFeeBps = feeBps;
       feeBps = newFeeBps;
       emit FeeBpsUpdated(oldFeeBps, newFeeBps);
-      }
+    }
+
+
+    // ─── Circuit breaker ──────────────────────────────────────────────────────
+
+    /// @notice Pause createStream, extendStreamWindowWithSignature, and withdrawFromStream.
+    /// @dev cancelStream and reclaimUnearned remain active so companies can always
+    ///      reclaim unspent funds during an emergency. Restricted to PAUSER_ROLE.
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    /// @notice Resume normal protocol operation.
+    /// @dev Restricted to PAUSER_ROLE.
+    function unpause() external onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
 }
 
 

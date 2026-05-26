@@ -13,6 +13,30 @@ contract MockUSDC is ERC20 {
     function decimals() public pure override returns (uint8) { return 6; }
 }
 
+/// @dev ERC-20 that burns `TAX_BPS` basis points on every transfer.
+///      Simulates fee-on-transfer / deflationary tokens (e.g. SAFEMOON-style).
+contract MockFeeToken is ERC20 {
+    uint256 public immutable TAX_BPS; // e.g. 200 = 2%
+
+    constructor(uint256 taxBps) ERC20("Fee Token", "FEE") {
+        TAX_BPS = taxBps;
+    }
+
+    function mint(address to, uint256 amount) external { _mint(to, amount); }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (from == address(0) || to == address(0)) {
+            // mint / burn — no tax
+            super._update(from, to, value);
+            return;
+        }
+        uint256 tax        = (value * TAX_BPS) / 10_000;
+        uint256 afterTax   = value - tax;
+        super._update(from, to, afterTax);   // recipient gets less
+        super._update(from, address(0), tax); // burned
+    }
+}
+
 // ─── Test Suite ───────────────────────────────────────────────────────────────
 
 contract CronStreamTest is Test {
@@ -70,6 +94,7 @@ contract CronStreamTest is Test {
             address(router)
         ));
     }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
@@ -994,5 +1019,224 @@ contract CronStreamTest is Test {
         vm.prank(contractor);
         vm.expectRevert(CronStreamRouter.NotSender.selector);
         router.reclaimUnearned(streamId);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 10. Pausable — Circuit Breaker Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_pause_happy() public {
+        vm.prank(admin);
+        router.pause();
+        assertTrue(router.paused(), "router should be paused");
+    }
+
+    function test_unpause_happy() public {
+        vm.prank(admin);
+        router.pause();
+
+        vm.prank(admin);
+        router.unpause();
+        assertFalse(router.paused(), "router should be unpaused");
+    }
+
+    function test_pause_revert_unauthorized() public {
+        vm.prank(attacker);
+        vm.expectRevert();
+        router.pause();
+    }
+
+    function test_unpause_revert_unauthorized() public {
+        vm.prank(admin);
+        router.pause();
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        router.unpause();
+    }
+
+    function test_pause_blocks_createStream() public {
+        vm.prank(admin);
+        router.pause();
+
+        vm.prank(company);
+        vm.expectRevert();
+        router.createStream(contractor, address(usdc), RATE, DURATION);
+    }
+
+    function test_pause_blocks_withdrawFromStream() public {
+        bytes32 streamId = _createStream();
+        vm.warp(block.timestamp + 1000);
+
+        vm.prank(admin);
+        router.pause();
+
+        vm.prank(contractor);
+        vm.expectRevert();
+        router.withdrawFromStream(streamId, RATE * 1000);
+    }
+
+    function test_pause_blocks_extendStreamWindowWithSignature() public {
+        bytes32 streamId = _createStream();
+
+        vm.prank(admin);
+        router.pause();
+
+        (, , , , , , , , uint256 nonce) = router.streams(streamId);
+        uint256 expiry   = block.timestamp + 3600;
+        bytes memory sig = _signVoucher(streamId, DURATION, nonce, expiry, AGENT_PRIV_KEY);
+
+        vm.expectRevert();
+        router.extendStreamWindowWithSignature(streamId, DURATION, expiry, sig);
+    }
+
+    function test_pause_allows_cancelStream() public {
+        // cancelStream must remain active so companies can always reclaim funds in emergencies
+        bytes32 streamId = _createStream();
+
+        vm.prank(admin);
+        router.pause();
+
+        uint256 companyBefore = usdc.balanceOf(company);
+        vm.prank(company);
+        router.cancelStream(streamId); // must NOT revert
+
+        assertGt(usdc.balanceOf(company) - companyBefore, 0, "cancel works while paused");
+    }
+
+    function test_pause_allows_reclaimUnearned() public {
+        // reclaimUnearned must stay active during pause so companies can always reclaim.
+        // We prove this by showing the function reaches its own domain logic (NothingToReclaim),
+        // NOT the whenNotPaused guard, when called after stream expiry.
+        bytes32 streamId = _createStream();
+
+        // Warp past the stream window so reclaimUnearned's StreamStillActive guard passes
+        vm.warp(block.timestamp + DURATION + 1);
+
+        vm.prank(admin);
+        router.pause();
+
+        // At natural expiry all deposited funds are earned → unearned == 0 → NothingToReclaim.
+        // The important assertion is that the revert is NothingToReclaim, NOT the Paused error.
+        vm.prank(company);
+        vm.expectRevert(CronStreamRouter.NothingToReclaim.selector); // NOT Paused
+        router.reclaimUnearned(streamId);
+    }
+
+    function test_unpause_resumes_createStream() public {
+        vm.prank(admin);
+        router.pause();
+
+        vm.prank(admin);
+        router.unpause();
+
+        // Should succeed after unpause
+        vm.prank(company);
+        bytes32 streamId = router.createStream(contractor, address(usdc), RATE, DURATION);
+        assertTrue(streamId != bytes32(0), "stream created after unpause");
+    }
+
+    function test_unpause_resumes_withdrawFromStream() public {
+        bytes32 streamId = _createStream();
+        vm.warp(block.timestamp + 1000);
+
+        vm.prank(admin);
+        router.pause();
+        vm.prank(admin);
+        router.unpause();
+
+        uint256 bal = router.balanceOf(streamId);
+        vm.prank(contractor);
+        router.withdrawFromStream(streamId, bal); // must succeed
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 11. Balance Delta Pattern — Fee-on-Transfer Token Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function _deployFeeToken(uint256 taxBps) internal returns (MockFeeToken feeToken) {
+        feeToken = new MockFeeToken(taxBps);
+        feeToken.mint(company, 100_000_000e18);
+        vm.prank(company);
+        feeToken.approve(address(router), type(uint256).max);
+    }
+
+    function test_balanceDelta_2pctTax_totalDepositedIsActualReceived() public {
+        MockFeeToken feeToken = _deployFeeToken(200); // 2% tax
+
+        uint256 intendedDeposit = RATE * DURATION;
+        uint256 expectedActual  = intendedDeposit - (intendedDeposit * 200 / 10_000); // 98%
+
+        vm.prank(company);
+        bytes32 streamId = router.createStream(contractor, address(feeToken), RATE, DURATION);
+
+        (, , , , , , uint256 totalDeposited, ,) = router.streams(streamId);
+        assertEq(totalDeposited, expectedActual, "totalDeposited reflects actual received (98%)");
+    }
+
+    function test_balanceDelta_10pctTax_totalDepositedIsActualReceived() public {
+        MockFeeToken feeToken = _deployFeeToken(1000); // 10% tax
+
+        uint256 intendedDeposit = RATE * DURATION;
+        uint256 expectedActual  = intendedDeposit - (intendedDeposit * 1000 / 10_000); // 90%
+
+        vm.prank(company);
+        bytes32 streamId = router.createStream(contractor, address(feeToken), RATE, DURATION);
+
+        (, , , , , , uint256 totalDeposited, ,) = router.streams(streamId);
+        assertEq(totalDeposited, expectedActual, "totalDeposited reflects actual received (90%)");
+    }
+
+    function test_balanceDelta_withdrawal_cappedAtActualDeposited() public {
+        MockFeeToken feeToken = _deployFeeToken(200); // 2% tax
+
+        vm.prank(company);
+        bytes32 streamId = router.createStream(contractor, address(feeToken), RATE, DURATION);
+
+        (, , , , , , uint256 totalDeposited, ,) = router.streams(streamId);
+
+        // Warp past expiry — contractor should earn exactly totalDeposited, not intendedDeposit
+        vm.warp(block.timestamp + DURATION + 9999);
+
+        uint256 bal = router.balanceOf(streamId);
+        assertEq(bal, totalDeposited, "balance capped at actual deposit, not intended");
+
+        // Contractor can withdraw only what actually arrived
+        vm.prank(contractor);
+        router.withdrawFromStream(streamId, bal); // must NOT revert
+
+        assertEq(router.balanceOf(streamId), 0, "balance zero after full withdrawal");
+    }
+
+    function test_balanceDelta_noRevert_on_standardToken() public {
+        // Standard tokens (no tax) should behave identically to before
+        uint256 intendedDeposit = RATE * DURATION;
+
+        vm.prank(company);
+        bytes32 streamId = router.createStream(contractor, address(usdc), RATE, DURATION);
+
+        (, , , , , , uint256 totalDeposited, ,) = router.streams(streamId);
+        assertEq(totalDeposited, intendedDeposit, "standard token: totalDeposited = intendedDeposit");
+    }
+
+    function testFuzz_balanceDelta_taxBps(uint256 taxBps) public {
+        // Test any tax between 0% and 50% — contract must always record actual, never revert
+        taxBps = bound(taxBps, 0, 5000); // 0–50%
+
+        MockFeeToken feeToken = _deployFeeToken(taxBps);
+
+        uint256 intendedDeposit = RATE * DURATION;
+        uint256 tax             = (intendedDeposit * taxBps) / 10_000;
+        uint256 expectedActual  = intendedDeposit - tax;
+
+        vm.prank(company);
+        bytes32 streamId = router.createStream(contractor, address(feeToken), RATE, DURATION);
+
+        (, , , , , , uint256 totalDeposited, ,) = router.streams(streamId);
+        assertEq(totalDeposited, expectedActual, "totalDeposited = intendedDeposit - tax for any tax rate");
+
+        // balanceOf must never exceed what actually arrived
+        vm.warp(block.timestamp + DURATION + 1);
+        assertLe(router.balanceOf(streamId), totalDeposited, "earned never exceeds actual deposit");
     }
 }
