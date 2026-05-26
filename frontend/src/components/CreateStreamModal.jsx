@@ -50,18 +50,30 @@ function ContractorPicker({ selected, onSelect }) {
   const [query,      setQuery]      = useState('');
   const [results,    setResults]    = useState([]);
   const [searching,  setSearching]  = useState(false);
+  const [open,       setOpen]       = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [manual,     setManual]     = useState('');
-  const debounce = useRef(null);
+  const debounce  = useRef(null);
+  const wrapperRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function onDown(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
 
   async function search(q) {
-    if (q.length < 2) { setResults([]); return; }
+    if (q.length < 2) { setResults([]); setOpen(false); return; }
     setSearching(true);
     try {
       const res = await fetch(`${AGENT_URL}/api/v1/contractor/lookup?q=${encodeURIComponent(q)}`);
       if (res.ok) {
         const { results: rows } = await res.json();
         setResults(rows);
+        setOpen(rows.length > 0);
       }
     } catch { /* agent offline — manual fallback available */ }
     finally { setSearching(false); }
@@ -70,8 +82,9 @@ function ContractorPicker({ selected, onSelect }) {
   function handleQuery(e) {
     const val = e.target.value;
     setQuery(val);
+    if (val.length < 2) { setResults([]); setOpen(false); }
     clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => search(val), 400);
+    debounce.current = setTimeout(() => search(val), 350);
   }
 
   function handleManual(e) {
@@ -83,13 +96,18 @@ function ContractorPicker({ selected, onSelect }) {
     }
   }
 
+  // ── Selected state ──────────────────────────────────────────────────────────
   if (selected) {
+    const selInitials = selected.name
+      ? selected.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
+      : '??';
     return (
       <div className="flex items-center gap-3 bg-dark border border-accent/30 rounded-xl px-4 py-3">
-        <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-          <span className="text-accent text-xs font-mono font-bold">
-            {selected.name ? selected.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '??'}
-          </span>
+        <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
+          {selected.avatar_url
+            ? <img src={selected.avatar_url} alt="" className="w-full h-full object-cover" />
+            : <span className="text-accent text-xs font-mono font-bold">{selInitials}</span>
+          }
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm truncate">{selected.name || 'Contractor'}</div>
@@ -105,44 +123,51 @@ function ContractorPicker({ selected, onSelect }) {
     );
   }
 
+  // ── Search state ────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-2">
-      {/* Search input */}
+    <div className="flex flex-col gap-2" ref={wrapperRef}>
+      {/* Input + floating dropdown */}
       <div className="relative">
         <input
           value={query}
           onChange={handleQuery}
-          placeholder="Search by GitHub username or name…"
+          onFocus={() => results.length > 0 && setOpen(true)}
+          placeholder="Search by name, GitHub username…"
           className="input pr-10"
         />
         {searching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
         )}
-      </div>
 
-      {/* Results */}
-      {results.length > 0 && (
-        <div className="flex flex-col divide-y divide-border border border-border rounded-xl overflow-hidden max-h-52 overflow-y-auto">
-          {results.map(r => (
-            <button key={r.address} type="button"
-              onClick={() => { onSelect(r); setQuery(''); setResults([]); }}
-              className="flex items-center gap-3 px-4 py-3 hover:bg-surface text-left transition-colors"
-            >
-              <div className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center shrink-0">
-                <span className="text-muted text-xs font-mono">
-                  {r.name ? r.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '??'}
-                </span>
-              </div>
-              <div className="min-w-0">
-                <div className="font-medium text-sm truncate">{r.name || 'Unnamed'}</div>
-                <div className="text-xs text-muted font-mono truncate">
-                  {r.github ? `@${r.github}` : r.address.slice(0,10)+'…'}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+        {/* Floating results list */}
+        {open && results.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-surface border border-border rounded-xl shadow-lg overflow-y-auto max-h-52">
+            {results.map(r => {
+              const initials = r.name ? r.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '??';
+              return (
+                <button key={r.address} type="button"
+                  onMouseDown={e => e.preventDefault()} // keep input focus until click completes
+                  onClick={() => { onSelect(r); setQuery(''); setResults([]); setOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-dark border-b border-border last:border-b-0 text-left transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-dark border border-border flex items-center justify-center shrink-0 overflow-hidden">
+                    {r.avatar_url
+                      ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
+                      : <span className="text-muted text-xs font-mono">{initials}</span>
+                    }
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{r.name || 'Unnamed'}</div>
+                    <div className="text-xs text-muted font-mono truncate">
+                      {r.github ? `@${r.github}` : r.address.slice(0,10)+'…'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {query.length >= 2 && results.length === 0 && !searching && (
         <p className="text-xs text-muted px-1">No registered contractors found.</p>
@@ -202,10 +227,15 @@ export default function CreateStreamModal() {
     if (!found) setForm(f => ({ ...f, token: walletTokens[0].address }));
   }, [walletTokens]);
 
-  // Apply prefill (e.g. from CompanyDashboard contractor search)
+  // Apply prefill (e.g. from CompanyDashboard contractor search or public profile link)
   useEffect(() => {
     if (open && prefill?.recipient) {
-      setSelectedContractor({ address: prefill.recipient, name: null, github: null });
+      setSelectedContractor({
+        address:    prefill.recipient,
+        name:       prefill.name       ?? null,
+        github:     prefill.github     ?? null,
+        avatar_url: prefill.avatar_url ?? null,
+      });
     }
   }, [open, prefill]);
 
@@ -287,7 +317,7 @@ export default function CreateStreamModal() {
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
-      <div className="modal-panel w-full max-w-lg max-h-[92vh] overflow-y-auto relative overflow-hidden">
+      <div className="modal-panel w-full max-w-lg max-h-[92vh] overflow-y-auto relative">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border">

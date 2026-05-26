@@ -383,7 +383,21 @@ export async function getProfile(address) {
 }
 
 /**
- * Search profiles by GitHub username (exact) or partial name.
+ * Fetch a single profile by username (case-insensitive).
+ * Used for public contractor profile pages (/p/:username).
+ */
+export async function getProfileByUsername(username) {
+  const db = getDb();
+  if (!db) return null;
+  const result = await db.execute({
+    sql:  'SELECT * FROM profiles WHERE username = ? LIMIT 1',
+    args: [username.toLowerCase()],
+  });
+  return result.rows.length > 0 ? decryptProfile(result.rows[0]) : null;
+}
+
+/**
+ * Search profiles by GitHub handle (partial) or name (partial).
  * Used for contractor lookup.
  */
 export async function searchProfiles({ github, username, name, role } = {}) {
@@ -393,7 +407,7 @@ export async function searchProfiles({ github, username, name, role } = {}) {
   const args       = [];
 
   if (username) { conditions.push('username = ?');      args.push(username.toLowerCase()); }
-  if (github)   { conditions.push('github = ?');        args.push(github.toLowerCase());   }
+  if (github)   { conditions.push('github LIKE ?');     args.push(`%${github.toLowerCase()}%`); }
   if (name)     { conditions.push('name LIKE ?');       args.push(`%${name}%`);            }
   if (role)     { conditions.push('role = ?');          args.push(role);                   }
 

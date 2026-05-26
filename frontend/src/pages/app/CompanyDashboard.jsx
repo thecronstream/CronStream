@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { formatUnits } from 'viem';
@@ -12,92 +12,126 @@ const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
 // ─── Contractor search ────────────────────────────────────────────────────────
 function ContractorSearch({ onSelect }) {
-  const [query,   setQuery]   = useState('');
-  const [results, setResults] = useState([]);
-  const [status,  setStatus]  = useState('idle'); // idle | loading | done | error
-  const [errMsg,  setErrMsg]  = useState('');
+  const [query,    setQuery]    = useState('');
+  const [results,  setResults]  = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [open,     setOpen]     = useState(false);
+  const [errMsg,   setErrMsg]   = useState('');
+  const debounce   = useRef(null);
+  const wrapperRef = useRef(null);
 
-  async function handleSearch(e) {
-    e.preventDefault();
-    if (!query.trim()) return;
-    setStatus('loading');
-    setResults([]);
+  // Close on outside click
+  useEffect(() => {
+    function onDown(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  async function search(q) {
+    if (!q.trim() || q.trim().length < 2) { setResults([]); setOpen(false); return; }
+    setLoading(true);
     setErrMsg('');
     try {
-      const res = await fetch(`${AGENT_URL}/api/v1/contractor/lookup?q=${encodeURIComponent(query.trim())}`);
-      if (res.status === 429) { setErrMsg('Too many requests — wait a moment and try again.'); setStatus('error'); return; }
-      if (res.status === 503 || res.status === 502) { setErrMsg('Agent is starting up — try again in a few seconds.'); setStatus('error'); return; }
-      if (!res.ok) { setErrMsg(`Server error (${res.status}) — try again.`); setStatus('error'); return; }
+      const res = await fetch(`${AGENT_URL}/api/v1/contractor/lookup?q=${encodeURIComponent(q.trim())}`);
+      if (res.status === 429) { setErrMsg('Too many requests — slow down a bit.'); setOpen(false); return; }
+      if (res.status === 503 || res.status === 502) { setErrMsg('Agent starting up — try again shortly.'); setOpen(false); return; }
+      if (!res.ok) { setErrMsg(`Server error (${res.status})`); setOpen(false); return; }
       const { results: rows } = await res.json();
       setResults(rows);
-      setStatus('done');
+      setOpen(true);
     } catch (err) {
-      const isOffline = err.message?.includes('fetch') || err.message?.includes('network') || err.name === 'TypeError';
-      setErrMsg(isOffline ? 'Cannot reach the agent — it may be starting up. Try again in a few seconds.' : 'Unexpected error — try again.');
-      setStatus('error');
+      const offline = err.message?.includes('fetch') || err.message?.includes('network') || err.name === 'TypeError';
+      setErrMsg(offline ? 'Cannot reach agent — it may be starting up.' : 'Unexpected error.');
+      setOpen(false);
+    } finally {
+      setLoading(false);
     }
   }
 
-  function clear() { setQuery(''); setResults([]); setStatus('idle'); setErrMsg(''); }
+  function handleChange(e) {
+    const val = e.target.value;
+    setQuery(val);
+    setErrMsg('');
+    if (val.trim().length < 2) { setResults([]); setOpen(false); return; }
+    clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => search(val), 350);
+  }
+
+  function clear() { setQuery(''); setResults([]); setOpen(false); setErrMsg(''); }
 
   return (
     <div className="card mb-6">
       <h2 className="text-sm font-semibold mb-3">Find a contractor</h2>
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="GitHub username or wallet 0x…"
-          className="input flex-1"
-        />
-        <button type="submit" disabled={status === 'loading'}
-          className="btn-primary px-4 py-2.5 text-sm shrink-0 disabled:opacity-50">
-          {status === 'loading' ? '…' : 'Search'}
-        </button>
-        {status !== 'idle' && (
-          <button type="button" onClick={clear} className="text-muted hover:text-white text-sm px-2">×</button>
-        )}
-      </form>
 
-      {status === 'done' && results.length === 0 && (
-        <p className="text-muted text-sm mt-3">No contractors found. They need to set up a CronStream profile first.</p>
-      )}
-      {status === 'error' && (
-        <p className="text-red-400 text-sm mt-3">{errMsg}</p>
-      )}
-
-      {results.length > 0 && (
-        <div className="mt-4 flex flex-col divide-y divide-border border border-border rounded-xl overflow-hidden">
-          {results.map(r => (
-            <div key={r.address} className="flex items-center justify-between px-4 py-3 gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                {/* Avatar initials */}
-                <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-                  <span className="text-accent text-xs font-mono font-bold">
-                    {r.name ? r.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??'}
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <div className="font-medium text-sm truncate">{r.name || 'Unnamed contractor'}</div>
-                  <div className="text-xs text-muted font-mono flex items-center gap-2">
-                    {r.github && (
-                      <a href={`https://github.com/${r.github}`} target="_blank" rel="noopener noreferrer"
-                        className="hover:text-accent transition-colors">↗ {r.github}</a>
-                    )}
-                    <span className="text-muted/50">{r.address.slice(0, 8)}…{r.address.slice(-6)}</span>
-                  </div>
-                </div>
-              </div>
-              <button
-                className="btn-primary py-1.5 px-3 text-xs shrink-0"
-                onClick={() => onSelect(r)}
-              >
-                Stream →
+      <div className="relative" ref={wrapperRef}>
+        {/* Input */}
+        <div className="relative">
+          <input
+            value={query}
+            onChange={handleChange}
+            onFocus={() => results.length > 0 && setOpen(true)}
+            placeholder="Name, GitHub username, or wallet 0x…"
+            className="input pr-10"
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {loading && (
+              <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            )}
+            {query && !loading && (
+              <button type="button" onClick={clear}
+                className="text-muted hover:text-white text-lg leading-none w-5 h-5 flex items-center justify-center">
+                ×
               </button>
-            </div>
-          ))}
+            )}
+          </div>
         </div>
-      )}
+
+        {/* Floating dropdown */}
+        {open && results.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-surface border border-border rounded-xl shadow-lg overflow-y-auto max-h-64">
+            {results.map(r => {
+              const initials = r.name ? r.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??';
+              return (
+                <div key={r.address} className="flex items-center justify-between px-4 py-3 gap-4 border-b border-border last:border-b-0 hover:bg-dark/60 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
+                      {r.avatar_url
+                        ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
+                        : <span className="text-accent text-xs font-mono font-bold">{initials}</span>
+                      }
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate">{r.name || 'Unnamed contractor'}</div>
+                      <div className="text-xs text-muted font-mono flex items-center gap-2">
+                        {r.github && <span>@{r.github}</span>}
+                        <span className="text-muted/50">{r.address.slice(0, 8)}…{r.address.slice(-6)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    className="btn-primary py-1.5 px-3 text-xs shrink-0"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => { onSelect(r); clear(); }}
+                  >
+                    Stream →
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* No results hint */}
+        {open && !loading && results.length === 0 && query.trim().length >= 2 && (
+          <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-surface border border-border rounded-xl shadow-lg px-4 py-3">
+            <p className="text-muted text-sm">No contractors found. They need a CronStream profile with role set to contractor.</p>
+          </div>
+        )}
+      </div>
+
+      {errMsg && <p className="text-red-400 text-xs mt-2">{errMsg}</p>}
     </div>
   );
 }
@@ -115,8 +149,12 @@ export default function CompanyDashboard() {
   const activeCount = sent.length; // we'd need stream data to distinguish — approximate
 
   function handleSelectContractor(contractor) {
-    // TODO: pre-fill modal with contractor address
-    openModal({ prefill: { recipient: contractor.address } });
+    openModal({ prefill: {
+      recipient:  contractor.address,
+      name:       contractor.name       ?? null,
+      github:     contractor.github     ?? null,
+      avatar_url: contractor.avatar_url ?? null,
+    }});
   }
 
   const initials = profile?.name

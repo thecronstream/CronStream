@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * RepoPicker — fetches repos from GitHub's public API using the
@@ -15,13 +15,23 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
   const [error,   setError]   = useState(null);
   const [manual,  setManual]  = useState(!githubHandle);
   const [query,   setQuery]   = useState('');
+  const [open,    setOpen]    = useState(false);
+  const wrapperRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function onDown(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
 
   useEffect(() => {
     if (!githubHandle || manual) return;
     setLoading(true);
     setError(null);
 
-    // Try user first (covers personal accounts), fall back to org
     async function fetchRepos() {
       try {
         let res = await fetch(
@@ -29,7 +39,6 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
           { headers: { Accept: 'application/vnd.github+json' } },
         );
         if (!res.ok) {
-          // Fall back to org (companies with org accounts)
           res = await fetch(
             `https://api.github.com/orgs/${githubHandle}/repos?per_page=100&sort=updated`,
             { headers: { Accept: 'application/vnd.github+json' } },
@@ -42,7 +51,6 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
           description: r.description,
           language:    r.language,
           private:     r.private,
-          updated_at:  r.updated_at,
         })));
       } catch (err) {
         setError(err.message);
@@ -79,7 +87,7 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" ref={wrapperRef}>
       {/* Selected repo */}
       {value && (
         <div className="flex items-center justify-between bg-dark border border-accent/30 rounded-xl px-4 py-2.5">
@@ -90,8 +98,7 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
       )}
 
       {!value && (
-        <>
-          {/* Search / loading row */}
+        <div className="relative">
           {loading ? (
             <div className="input flex items-center gap-3 cursor-default">
               <div className="w-4 h-4 shrink-0 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -100,21 +107,23 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
           ) : (
             <input
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e => { setQuery(e.target.value); setOpen(true); }}
+              onFocus={() => filtered.length > 0 && setOpen(true)}
               placeholder={`Search ${githubHandle}'s repos…`}
               className="input"
             />
           )}
 
-          {/* Repo list */}
-          {filtered.length > 0 && (
-            <div className="flex flex-col divide-y divide-border border border-border rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+          {/* Floating repo list */}
+          {open && filtered.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-surface border border-border rounded-xl shadow-lg overflow-y-auto max-h-48">
               {filtered.map(repo => (
                 <button
                   key={repo.full_name}
                   type="button"
-                  onClick={() => { onChange(repo.full_name); setQuery(''); }}
-                  className="flex items-start justify-between px-4 py-2.5 hover:bg-surface text-left transition-colors gap-3"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { onChange(repo.full_name); setQuery(''); setOpen(false); }}
+                  className="w-full flex items-start justify-between px-4 py-2.5 hover:bg-dark border-b border-border last:border-b-0 text-left transition-colors gap-3"
                 >
                   <div className="min-w-0">
                     <div className="font-mono text-sm text-white truncate">{repo.full_name}</div>
@@ -136,12 +145,12 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
           )}
 
           {repos.length === 0 && !loading && (
-            <p className="text-xs text-muted px-1">No repos found.</p>
+            <p className="text-xs text-muted px-1 mt-1">No repos found.</p>
           )}
-        </>
+        </div>
       )}
 
-      <button type="button" onClick={() => { setManual(true); }}
+      <button type="button" onClick={() => setManual(true)}
         className="text-xs text-muted hover:text-accent font-mono self-start transition-colors">
         + Enter manually instead
       </button>

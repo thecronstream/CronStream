@@ -112,12 +112,15 @@ export default function AppShell() {
                     }
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate leading-tight">
-                      {profile?.name || `${account.address.slice(0, 6)}…${account.address.slice(-4)}`}
-                    </div>
-                    {profile?.username && (
-                      <div className="text-[10px] text-muted font-mono truncate leading-tight">@{profile.username}</div>
-                    )}
+                    {profile?.username
+                      ? <>
+                          <div className="text-[10px] text-muted font-mono truncate leading-tight">@{profile.username}</div>
+                          <div className="text-xs font-semibold text-white truncate leading-tight">{profile.name || account.address.slice(0, 10)}</div>
+                        </>
+                      : <div className="text-xs font-semibold text-white truncate leading-tight">
+                          {profile?.name || `${account.address.slice(0, 6)}…${account.address.slice(-4)}`}
+                        </div>
+                    }
                   </div>
                   {profile?.role && (
                     <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border shrink-0

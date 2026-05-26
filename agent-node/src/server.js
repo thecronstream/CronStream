@@ -17,7 +17,7 @@ import rateLimit from 'express-rate-limit';
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
 import { submitExtension, getAllBalances }                    from './chainSubmitter.js';
-import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getDb, upsertProfile, getProfile, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount } from './db.js';
+import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount } from './db.js';
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
@@ -40,10 +40,23 @@ app.use(helmet({
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // Tighten with CORS_ORIGIN in production — defaults to * in dev only.
 // In production set CORS_ORIGIN=https://your-frontend.vercel.app
-const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ?? '*';
+// CORS_ORIGIN can be a single origin or comma-separated list.
+// Trailing slashes are stripped — browsers never include them in the Origin header.
+// Example: CORS_ORIGIN=https://cronstream.vercel.app,http://localhost:5173
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN ?? '*')
+  .split(',')
+  .map(o => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin',   ALLOWED_ORIGIN);
+  const requestOrigin = req.headers.origin ?? '';
+  const isWildcard    = ALLOWED_ORIGINS.includes('*');
+  const isAllowed     = isWildcard || ALLOWED_ORIGINS.includes(requestOrigin);
+
+  if (isAllowed) {
+    res.setHeader('Access-Control-Allow-Origin',   isWildcard ? '*' : requestOrigin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods',  'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers',  'Content-Type, Authorization, X-PAYMENT, X-Payment-Response');
   res.setHeader('Access-Control-Expose-Headers', 'X-Payment-Response, X-Payment-Requirements');
@@ -633,16 +646,35 @@ app.get('/api/v1/contractor/lookup', async (req, res) => {
     const byUsername = await searchProfiles({ username: uname, role: 'contractor' });
     if (byUsername.length > 0) return res.json({ results: byUsername.map(publicProfile) });
 
-    // GitHub handle — exact
+    // GitHub handle — partial LIKE match
     const byGithub = await searchProfiles({ github: uname, role: 'contractor' });
     if (byGithub.length > 0) return res.json({ results: byGithub.map(publicProfile) });
 
-    // Name — partial
+    // Name — partial LIKE match
     const byName = await searchProfiles({ name: term, role: 'contractor' });
     return res.json({ results: byName.map(publicProfile) });
   } catch (err) {
     console.error('[contractor:lookup]', err);
     return res.status(500).json({ error: 'Lookup failed' });
+  }
+});
+
+// ─── GET /api/v1/profile/:username ───────────────────────────────────────────
+// Public contractor profile — used by the /p/:username frontend route.
+// Returns only public fields; never returns api_key or encrypted credentials.
+
+app.get('/api/v1/profile/:username', async (req, res) => {
+  const { username } = req.params;
+  if (!username || username.length < 2) {
+    return res.status(400).json({ error: 'Invalid username' });
+  }
+  try {
+    const profile = await getProfileByUsername(username);
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    return res.json({ profile: publicProfile(profile) });
+  } catch (err) {
+    console.error('[profile:public]', err);
+    return res.status(500).json({ error: 'Failed to fetch profile' });
   }
 });
 

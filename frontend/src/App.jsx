@@ -1,9 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 
-import Landing      from './pages/Landing';
-import Privacy      from './pages/Privacy';
-import Terms        from './pages/Terms';
+import Landing       from './pages/Landing';
+import Privacy       from './pages/Privacy';
+import Terms         from './pages/Terms';
+import PublicProfile from './pages/PublicProfile';
 import Setup        from './pages/app/Setup';
 import Dashboard    from './pages/app/Dashboard';
 import StreamDetail from './pages/app/StreamDetail';
@@ -27,6 +28,7 @@ export default function App() {
       <Route path="/"        element={<Landing />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/terms"   element={<Terms />} />
+      <Route path="/p/:username" element={<PublicProfile />} />
 
       {/* App — wallet required */}
       <Route path="/app" element={

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
@@ -51,6 +51,42 @@ function TotalEarningsTicker({ streamIds }) {
       <span className="text-5xl sm:text-6xl">{int}</span>
       <span className="text-3xl sm:text-4xl opacity-60">.{dec}</span>
     </span>
+  );
+}
+
+// ─── Profile link banner ──────────────────────────────────────────────────────
+function ProfileLinkBanner({ username }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/p/${username}`;
+
+  function copy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="card mb-6 flex items-center gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-muted mb-1">Your public profile</p>
+        <p className="text-xs font-mono text-white truncate">{url}</p>
+      </div>
+      <button
+        onClick={copy}
+        className="btn-primary py-1.5 px-3 text-xs shrink-0"
+      >
+        {copied ? '✓ Copied' : 'Copy link'}
+      </button>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-muted hover:text-white text-xs px-2 py-1.5 rounded-lg border border-border hover:border-white/20 transition-colors shrink-0"
+      >
+        ↗ View
+      </a>
+    </div>
   );
 }
 
@@ -152,6 +188,11 @@ export default function ContractorDashboard() {
           )}
         </div>
       </div>
+
+      {/* Public profile link */}
+      {profile?.username && (
+        <ProfileLinkBanner username={profile.username} />
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-6">
