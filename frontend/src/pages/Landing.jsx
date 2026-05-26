@@ -36,9 +36,11 @@ function WaitlistSection() {
   }
 
   async function copyCode() {
-    if (!inviteCode) return;
+    const refUrl = inviteCode
+      ? `${window.location.origin}${window.location.pathname}?ref=${inviteCode}`
+      : window.location.href;
     try {
-      await navigator.clipboard.writeText(inviteCode);
+      await navigator.clipboard.writeText(refUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -47,45 +49,75 @@ function WaitlistSection() {
   }
 
   if (state === 'success') {
+    const refUrl = inviteCode
+      ? `${window.location.origin}${window.location.pathname}?ref=${inviteCode}`
+      : window.location.href;
+    const tweetText = encodeURIComponent(
+      `Just joined the @cronstream waitlist 🚀\n\nAutonomous on-chain payroll — pay contractors the moment they ship.\n\nGet early access → ${refUrl}`
+    );
+    const tweetUrl = `https://twitter.com/intent/tweet?text=${tweetText}`;
+
     return (
       <section className="py-24 px-6 border-t border-border">
         <div className="max-w-xl mx-auto text-center">
+          {/* Check icon */}
           <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/30 flex items-center justify-center mx-auto mb-6">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M5 13l4 4L19 7" stroke="#00D4AA" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
+
           <h2 className="text-2xl font-bold mb-2">You're on the list.</h2>
-          <p className="text-muted text-sm mb-8">
-            Check your inbox — we've sent your invite code. We'll reach out when access opens.
+          <p className="text-muted text-sm mb-10">
+            Check your inbox — we've sent your invite code and next steps.
           </p>
 
+          {/* Referral link */}
           {inviteCode && (
-            <div className="mt-2 mb-8">
-              <p className="text-xs font-mono text-muted uppercase tracking-widest mb-3">Your invite code</p>
-              <button
-                onClick={copyCode}
-                className="group inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-accent/5 border border-accent/20 hover:bg-accent/10 hover:border-accent/40 transition-all cursor-pointer mx-auto"
-              >
-                <span className="font-mono text-2xl font-bold tracking-[0.15em] text-accent">{inviteCode}</span>
-                <span className="text-muted group-hover:text-accent transition-colors">
+            <div className="mb-6">
+              <p className="text-xs font-mono text-muted uppercase tracking-widest mb-3">Your referral link</p>
+              <div className="flex items-center gap-2 p-2 pl-4 rounded-xl bg-surface border border-border text-left">
+                <span className="text-sm text-muted flex-1 truncate font-mono">{refUrl}</span>
+                <button
+                  onClick={copyCode}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/20 hover:bg-accent/20 transition-all text-accent text-xs font-medium"
+                >
                   {copied ? (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <path d="M5 13l4 4L19 7" stroke="#00D4AA" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 13l4 4L19 7" stroke="#00D4AA" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      Copied
+                    </>
                   ) : (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.8"/>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                    </svg>
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.8"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                      </svg>
+                      Copy
+                    </>
                   )}
-                </span>
-              </button>
-              <p className="text-xs text-muted mt-3">Share this with your team — they'll skip the queue.</p>
+                </button>
+              </div>
+              <p className="text-xs text-muted mt-2">Friends who use your link skip the queue.</p>
             </div>
           )}
 
-          <p className="text-xs text-muted">In the meantime, the app is live on testnet.</p>
+          {/* Share on X */}
+          <a
+            href={tweetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-surface border border-border hover:border-white/20 hover:bg-white/5 transition-all text-sm font-medium mb-8"
+          >
+            {/* X / Twitter logo */}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.747l7.73-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/>
+            </svg>
+            Share on X
+          </a>
+
         </div>
       </section>
     );
@@ -527,10 +559,23 @@ export default function Landing() {
               <div className="px-8 py-8">
                 <div className="text-xs font-mono text-muted uppercase tracking-widest mb-4">Supported stock tokens</div>
                 <div className="grid grid-cols-3 gap-3">
-                  {['TSLA', 'AMZN', 'NFLX', 'AMD', 'PLTR', 'AAPL'].map(ticker => (
+                  {[
+                    { ticker: 'TSLA', domain: 'tesla.com',    name: 'Tesla'   },
+                    { ticker: 'AMZN', domain: 'amazon.com',   name: 'Amazon'  },
+                    { ticker: 'NFLX', domain: 'netflix.com',  name: 'Netflix' },
+                    { ticker: 'AMD',  domain: 'amd.com',      name: 'AMD'     },
+                    { ticker: 'PLTR', domain: 'palantir.com', name: 'Palantir'},
+                    { ticker: 'AAPL', domain: 'apple.com',    name: 'Apple'   },
+                  ].map(({ ticker, domain, name }) => (
                     <div key={ticker}
-                      className="border border-border rounded-xl px-3 py-2.5 text-center bg-surface hover:border-accent/30 transition-colors">
-                      <div className="font-mono font-semibold text-sm text-white">{ticker}</div>
+                      className="border border-border rounded-xl px-3 py-3 flex flex-col items-center gap-2 bg-surface hover:border-accent/30 transition-colors">
+                      <img
+                        src={`https://logo.clearbit.com/${domain}`}
+                        alt={name}
+                        className="w-7 h-7 rounded-lg object-contain"
+                        onError={e => { e.target.style.display = 'none'; }}
+                      />
+                      <div className="font-mono font-semibold text-xs text-white">{ticker}</div>
                     </div>
                   ))}
                 </div>

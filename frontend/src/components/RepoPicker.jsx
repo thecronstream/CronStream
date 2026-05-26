@@ -21,18 +21,17 @@ export default function RepoPicker({ githubHandle, value, onChange }) {
     setLoading(true);
     setError(null);
 
-    // Try org first, fall back to user
+    // Try user first (covers personal accounts), fall back to org
     async function fetchRepos() {
       try {
-        // Try as org
         let res = await fetch(
-          `https://api.github.com/orgs/${githubHandle}/repos?per_page=100&sort=updated`,
+          `https://api.github.com/users/${githubHandle}/repos?per_page=100&sort=updated`,
           { headers: { Accept: 'application/vnd.github+json' } },
         );
         if (!res.ok) {
-          // Fall back to user
+          // Fall back to org (companies with org accounts)
           res = await fetch(
-            `https://api.github.com/users/${githubHandle}/repos?per_page=100&sort=updated`,
+            `https://api.github.com/orgs/${githubHandle}/repos?per_page=100&sort=updated`,
             { headers: { Accept: 'application/vnd.github+json' } },
           );
         }

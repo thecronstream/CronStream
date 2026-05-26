@@ -16,7 +16,21 @@ const ERC20_ABI = [
   'function allowance(address owner, address spender) external view returns (uint256)',
 ];
 
-const SECONDS_PER_DAY = 86400n;
+const SECONDS = {
+  hour:  3600n,
+  day:   86400n,
+  week:  604800n,
+  month: 2592000n, // 30 days
+};
+
+const RATE_UNITS     = ['hour', 'day', 'week', 'month'];
+const DURATION_UNITS = ['days', 'weeks', 'months'];
+
+const DURATION_SECONDS = {
+  days:   86400n,
+  weeks:  604800n,
+  months: 2592000n,
+};
 
 // ─── Step dots ────────────────────────────────────────────────────────────────
 function StepDots({ current, total }) {
@@ -175,7 +189,9 @@ export default function CreateStreamModal() {
   // Default to USDC on Arb Sepolia; updates to first available wallet token once loaded
   const DEFAULT_TOKEN = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
   const [form, setForm] = useState({
-    token: DEFAULT_TOKEN, ratePerDay: '', durationDays: '',
+    token: DEFAULT_TOKEN,
+    rateAmount: '', rateUnit: 'month',
+    durationAmount: '', durationUnit: 'months',
     verificationSource: 'github', verificationTarget: '',
   });
 
@@ -197,20 +213,26 @@ export default function CreateStreamModal() {
   const { decimals }   = selectedToken;
   const recipientAddr  = selectedContractor?.address ?? '';
 
-  const ratePerSecond = form.ratePerDay && recipientAddr
-    ? parseUnits(form.ratePerDay, decimals) / SECONDS_PER_DAY
+  const ratePerSecond = form.rateAmount && recipientAddr
+    ? parseUnits(form.rateAmount, decimals) / SECONDS[form.rateUnit]
     : 0n;
-  const totalCostRaw = form.ratePerDay && form.durationDays
-    ? parseUnits(form.ratePerDay, decimals) * BigInt(Math.max(1, parseInt(form.durationDays || '0')))
+
+  const durationSeconds = form.durationAmount
+    ? DURATION_SECONDS[form.durationUnit] * BigInt(Math.max(1, parseInt(form.durationAmount || '0')))
     : 0n;
+
+  const totalCostRaw = ratePerSecond > 0n && durationSeconds > 0n
+    ? ratePerSecond * durationSeconds
+    : 0n;
+
   const totalCostDisplay = totalCostRaw > 0n
-    ? parseFloat(formatUnits(totalCostRaw, decimals)).toFixed(2)
+    ? parseFloat(formatUnits(totalCostRaw, decimals)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : null;
 
   function handleClose() {
     if (step === 1 || step === 2) return; // block close mid-tx
     setStep(0);
-    setForm({ token: walletTokens[0]?.address ?? DEFAULT_TOKEN, ratePerDay: '', durationDays: '', verificationSource: 'github', verificationTarget: '' });
+    setForm({ token: walletTokens[0]?.address ?? DEFAULT_TOKEN, rateAmount: '', rateUnit: 'month', durationAmount: '', durationUnit: 'months', verificationSource: 'github', verificationTarget: '' });
     setSelectedContractor(null);
     setCreatedStreamId(null);
     closeModal();
@@ -261,7 +283,7 @@ export default function CreateStreamModal() {
 
   if (!open) return null;
 
-  const canConfigure = recipientAddr && form.ratePerDay && form.durationDays;
+  const canConfigure = recipientAddr && form.rateAmount && form.durationAmount;
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
@@ -326,18 +348,53 @@ export default function CreateStreamModal() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Per day ({selectedToken.symbol})</label>
-                  <input type="number" min="0" step="any" value={form.ratePerDay} placeholder="100"
-                    onChange={e => setForm(f => ({ ...f, ratePerDay: e.target.value }))}
-                    className="input" required />
+              {/* Rate */}
+              <div>
+                <label className="label">Rate ({selectedToken.symbol})</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number" min="0" step="any"
+                    value={form.rateAmount} placeholder="5000"
+                    onChange={e => setForm(f => ({ ...f, rateAmount: e.target.value }))}
+                    className="input flex-1" required
+                  />
+                  <div className="flex rounded-xl border border-border overflow-hidden shrink-0 text-xs">
+                    {RATE_UNITS.map(u => (
+                      <button
+                        key={u} type="button"
+                        onClick={() => setForm(f => ({ ...f, rateUnit: u }))}
+                        className={`px-2.5 py-2 font-medium capitalize transition-colors
+                          ${form.rateUnit === u ? 'bg-accent/10 text-accent' : 'text-muted hover:text-white bg-dark'}`}
+                      >
+                        /{u === 'hour' ? 'hr' : u === 'month' ? 'mo' : u === 'week' ? 'wk' : 'day'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="label">Duration (days)</label>
-                  <input type="number" min="1" value={form.durationDays} placeholder="30"
-                    onChange={e => setForm(f => ({ ...f, durationDays: e.target.value }))}
-                    className="input" required />
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label className="label">Duration</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number" min="1"
+                    value={form.durationAmount} placeholder="3"
+                    onChange={e => setForm(f => ({ ...f, durationAmount: e.target.value }))}
+                    className="input flex-1" required
+                  />
+                  <div className="flex rounded-xl border border-border overflow-hidden shrink-0 text-xs">
+                    {DURATION_UNITS.map(u => (
+                      <button
+                        key={u} type="button"
+                        onClick={() => setForm(f => ({ ...f, durationUnit: u }))}
+                        className={`px-2.5 py-2 font-medium capitalize transition-colors
+                          ${form.durationUnit === u ? 'bg-accent/10 text-accent' : 'text-muted hover:text-white bg-dark'}`}
+                      >
+                        {u}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -437,8 +494,8 @@ export default function CreateStreamModal() {
                 {[
                   ['To',       selectedContractor?.name ? `${selectedContractor.name} · ${recipientAddr.slice(0,8)}…` : `${recipientAddr.slice(0,8)}…${recipientAddr.slice(-6)}`],
                   ['Token',    selectedToken.symbol],
-                  ['Rate',     `${form.ratePerDay} ${selectedToken.symbol}/day`],
-                  ['Duration', `${form.durationDays} days`],
+                  ['Rate',     `${form.rateAmount} ${selectedToken.symbol}/${form.rateUnit}`],
+                  ['Duration', `${form.durationAmount} ${form.durationUnit}`],
                   form.verificationTarget ? [VERIFICATION_SOURCES.find(s=>s.key===form.verificationSource)?.label ?? 'Source', form.verificationTarget] : null,
                   ['Deposit',  `${totalCostDisplay} ${selectedToken.symbol}`],
                 ].filter(Boolean).map(([label, value], i, arr) => (
@@ -448,7 +505,7 @@ export default function CreateStreamModal() {
                   </div>
                 ))}
               </div>
-              <button onClick={() => doCreate({ address: getContractAddress(chainId), abi: ROUTER_ABI, functionName: 'createStream', args: [recipientAddr, form.token, ratePerSecond, BigInt(parseInt(form.durationDays) * 86400)] })}
+              <button onClick={() => doCreate({ address: getContractAddress(chainId), abi: ROUTER_ABI, functionName: 'createStream', args: [recipientAddr, form.token, ratePerSecond, durationSeconds] })}
                 disabled={createPending || createConfirming}
                 className="btn-primary w-full disabled:opacity-40">
                 {createPending ? 'Confirm in wallet…' : createConfirming ? 'Creating…' : 'Deposit & start stream'}
@@ -464,7 +521,7 @@ export default function CreateStreamModal() {
                 <p className="font-semibold mb-1">
                   {selectedContractor?.name || `${recipientAddr.slice(0,6)}…`} is earning
                 </p>
-                <p className="text-muted text-sm">{form.ratePerDay} {selectedToken.symbol}/day — starting now</p>
+                <p className="text-muted text-sm">{form.rateAmount} {selectedToken.symbol}/{form.rateUnit} — starting now</p>
               </div>
               {form.verificationTarget && (
                 <div className="text-xs text-accent font-mono bg-accent/5 border border-accent/20 rounded-xl px-4 py-2 w-full">
