@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useDisconnect } from 'wagmi';
-import { LayoutDashboard, Settings, Plus, LogOut } from 'lucide-react';
+import { LayoutDashboard, Settings, Plus, LogOut, TrendingUp, ChevronRight } from 'lucide-react';
 import { useProfile } from '../hooks/useProfile';
 import { useCreateStream } from '../context/CreateStreamContext';
 import CreateStreamModal from './CreateStreamModal';
@@ -26,15 +26,19 @@ export default function AppShell() {
   const isContractor = profile?.role === 'contractor';
 
   const NAV = [
-    { to: '/app/dashboard', label: 'Dashboard', icon: '⬡', show: true },
-    { to: '/app/settings',  label: 'Settings',  icon: '⚙', show: true },
+    { to: '/app/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} />, show: true },
+    { to: '/app/income',    label: 'Income',    icon: <TrendingUp size={15} />,      show: isContractor },
+    { to: '/app/profile',   label: 'Profile',   icon: <Settings size={15} />,        show: true },
+    { to: '/app/settings',  label: 'Settings',  icon: <Settings size={15} />,        show: isCompany },
   ].filter(n => n.show);
 
   // Limelight nav items for mobile
   const mobileNavItems = [
     { id: 'dashboard', to: '/app/dashboard', label: 'Dashboard', icon: <LayoutDashboard /> },
-    ...(isCompany ? [{ id: 'stream', label: 'Stream', icon: <Plus />, onClick: openModal }] : []),
-    { id: 'settings',  to: '/app/settings',  label: 'Settings',  icon: <Settings /> },
+    ...(isContractor ? [{ id: 'income',   to: '/app/income',   label: 'Income',   icon: <TrendingUp /> }] : []),
+    ...(isCompany    ? [{ id: 'stream',                         label: 'Stream',   icon: <Plus />, onClick: openModal }] : []),
+    { id: 'profile',   to: '/app/profile',   label: 'Profile',   icon: <Settings /> },
+    ...(isCompany    ? [{ id: 'settings', to: '/app/settings', label: 'Settings', icon: <Settings /> }] : []),
   ];
 
   const initials = profile?.name
@@ -81,7 +85,7 @@ export default function AppShell() {
               ${isActive ? 'bg-accent/10 text-accent' : 'text-muted hover:text-white hover:bg-white/5'}`
             }
           >
-            <span className="font-mono text-base w-5 text-center shrink-0">{icon}</span>
+            <span className="w-4 h-4 flex items-center justify-center shrink-0">{icon}</span>
             {label}
           </NavLink>
         ))}

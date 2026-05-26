@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
-import { formatUnits } from 'viem';
 import { useProfile }      from '../../hooks/useProfile';
 import { useStreams }      from '../../hooks/useStreams';
 import { useAgentStatus }  from '../../hooks/useAgentStatus';
 import { useCreateStream } from '../../context/CreateStreamContext';
-import StreamCard from '../../components/StreamCard';
+import { Plus, Inbox } from 'lucide-react';
+import StreamCard    from '../../components/StreamCard';
+import MagneticDock  from '../../components/MagneticDock';
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
@@ -20,7 +21,6 @@ function ContractorSearch({ onSelect }) {
   const debounce   = useRef(null);
   const wrapperRef = useRef(null);
 
-  // Close on outside click
   useEffect(() => {
     function onDown(e) {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
@@ -31,8 +31,7 @@ function ContractorSearch({ onSelect }) {
 
   async function search(q) {
     if (!q.trim() || q.trim().length < 2) { setResults([]); setOpen(false); return; }
-    setLoading(true);
-    setErrMsg('');
+    setLoading(true); setErrMsg('');
     try {
       const res = await fetch(`${AGENT_URL}/api/v1/contractor/lookup?q=${encodeURIComponent(q.trim())}`);
       if (res.status === 429) { setErrMsg('Too many requests — slow down a bit.'); setOpen(false); return; }
@@ -52,8 +51,7 @@ function ContractorSearch({ onSelect }) {
 
   function handleChange(e) {
     const val = e.target.value;
-    setQuery(val);
-    setErrMsg('');
+    setQuery(val); setErrMsg('');
     if (val.trim().length < 2) { setResults([]); setOpen(false); return; }
     clearTimeout(debounce.current);
     debounce.current = setTimeout(() => search(val), 350);
@@ -94,28 +92,33 @@ function ContractorSearch({ onSelect }) {
             {results.map(r => {
               const initials = r.name ? r.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??';
               return (
-                <div key={r.address} className="flex items-center justify-between px-4 py-3 gap-4 border-b border-border last:border-b-0 hover:bg-dark/60 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
-                      {r.avatar_url
-                        ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
-                        : <span className="text-accent text-xs font-mono font-bold">{initials}</span>
-                      }
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{r.name || 'Unnamed contractor'}</div>
-                      <div className="text-xs text-muted font-mono flex items-center gap-2">
-                        {r.github && <span>@{r.github}</span>}
-                        <span className="text-muted/50">{r.address.slice(0, 8)}…{r.address.slice(-6)}</span>
-                      </div>
+                <div key={r.address}
+                  className="flex items-center gap-3 px-3 py-3 border-b border-border last:border-b-0 hover:bg-dark/60 transition-colors">
+                  {/* Avatar */}
+                  <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
+                    {r.avatar_url
+                      ? <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
+                      : <span className="text-accent text-xs font-mono font-bold">{initials}</span>
+                    }
+                  </div>
+
+                  {/* Info — takes remaining space, truncates */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">{r.name || 'Unnamed'}</div>
+                    <div className="text-xs text-muted font-mono truncate">
+                      {r.github ? `@${r.github}` : `${r.address.slice(0, 8)}…${r.address.slice(-4)}`}
                     </div>
                   </div>
+
+                  {/* Action — fixed width so it never wraps */}
                   <button
-                    className="btn-primary py-1.5 px-3 text-xs shrink-0"
+                    className="shrink-0 text-xs font-semibold text-accent border border-accent/30 bg-accent/5
+                      hover:bg-accent hover:text-dark hover:border-accent
+                      px-3 py-1.5 rounded-lg transition-all"
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => { onSelect(r); clear(); }}
                   >
-                    Stream →
+                    Stream
                   </button>
                 </div>
               );
@@ -123,15 +126,15 @@ function ContractorSearch({ onSelect }) {
           </div>
         )}
 
-        {/* No results hint */}
+        {/* No results */}
         {open && !loading && results.length === 0 && query.trim().length >= 2 && (
           <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-surface border border-border rounded-xl shadow-lg px-4 py-3">
-            <p className="text-muted text-sm">No contractors found. They need a CronStream profile with role set to contractor.</p>
+            <p className="text-muted text-sm">No contractors found. They need a CronStream profile.</p>
           </div>
         )}
       </div>
 
-      {errMsg && <p className="text-red-400 text-xs mt-2">{errMsg}</p>}
+      {errMsg && <p className="text-red-400 text-xs mt-2 font-mono">{errMsg}</p>}
     </div>
   );
 }
@@ -144,9 +147,6 @@ export default function CompanyDashboard() {
   const navigate      = useNavigate();
   const { sent, loading } = useStreams();
   const { online, data: agentData } = useAgentStatus();
-
-  // Count active vs expired
-  const activeCount = sent.length; // we'd need stream data to distinguish — approximate
 
   function handleSelectContractor(contractor) {
     openModal({ prefill: {
@@ -164,79 +164,68 @@ export default function CompanyDashboard() {
   return (
     <div className="p-4 sm:p-6 w-full">
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-6">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="mb-6">
+        {/* Top row: avatar + name + action button */}
+        <div className="flex items-start justify-between gap-3">
 
-        {/* Identity */}
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Avatar */}
-          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
-            {profile?.avatar
-              ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-              : <span className="text-accent text-sm font-mono font-bold">{initials}</span>
-            }
-          </div>
-
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-bold truncate">{profile?.name ?? 'Dashboard'}</h1>
-              {profile?.username && (
-                <span className="text-xs text-muted font-mono hidden sm:inline">@{profile.username}</span>
-              )}
-              <span className="text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/5 text-accent font-mono shrink-0">
-                company
-              </span>
+          {/* Left: avatar + name */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 overflow-hidden">
+              {profile?.avatar
+                ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+                : <span className="text-accent text-sm font-mono font-bold">{initials}</span>
+              }
             </div>
-            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-              {profile?.website && (
-                <a href={profile.website} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-muted hover:text-accent transition-colors truncate">
-                  ↗ {profile.website.replace(/^https?:\/\//, '')}
-                </a>
-              )}
-              {profile?.github && (
-                <a href={`https://github.com/${profile.github}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-muted hover:text-accent transition-colors font-mono hidden sm:inline">
-                  GitHub
-                </a>
-              )}
-              {profile?.twitter && (
-                <a href={`https://x.com/${profile.twitter}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-muted hover:text-accent transition-colors hidden sm:inline">
-                  X
-                </a>
-              )}
-              {profile?.linkedin && (
-                <a href={`https://linkedin.com/in/${profile.linkedin}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-muted hover:text-accent transition-colors hidden sm:inline">
-                  LinkedIn
-                </a>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-base font-bold truncate max-w-[180px] sm:max-w-none">
+                  {profile?.name ?? 'Dashboard'}
+                </h1>
+                {profile?.username && (
+                  <span className="text-xs text-muted font-mono hidden sm:inline">@{profile.username}</span>
+                )}
+                <span className="text-[10px] px-2 py-0.5 rounded-full border border-accent/30 bg-accent/5 text-accent font-mono shrink-0">
+                  company
+                </span>
+              </div>
+
+              {/* Agent status — mobile: below name; desktop: inline */}
+              {online !== null && (
+                <div className={`mt-1 inline-flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1 rounded-full border
+                  ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-accent pulse-dot' : 'bg-muted'}`} />
+                  {online ? 'Agent online' : 'Offline'}
+                </div>
               )}
             </div>
           </div>
-        </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 shrink-0">
-          {online !== null && (
-            <div className={`hidden sm:flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-full border
-              ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-accent pulse-dot' : 'bg-muted'}`} />
-              {online ? 'Agent online' : 'Agent offline'}
-            </div>
-          )}
-          <button className="btn-primary py-2 px-4 text-sm" onClick={() => openModal()}>
-            + New Stream
+          {/* Right: New Stream button */}
+          <button
+            className="btn-primary py-2 px-3 sm:px-4 text-xs sm:text-sm shrink-0 flex items-center gap-1.5"
+            onClick={() => openModal()}
+          >
+            <Plus size={14} />
+            <span className="hidden xs:inline">New Stream</span>
+            <span className="xs:hidden">New</span>
           </button>
         </div>
+
+        {/* Social links via MagneticDock */}
+        {(profile?.github || profile?.twitter || profile?.linkedin || profile?.farcaster || profile?.website) && (
+          <div className="mt-3 ml-[52px]">
+            <MagneticDock profile={profile} />
+          </div>
+        )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      {/* ── Stats ──────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Streams created', value: sent.length },
-          { label: 'Active now',      value: activeCount },
-          { label: 'Agent ext.',      value: online ? (agentData?.extensionsServed ?? 0) : '—' },
+          { label: 'Active now',      value: sent.length },
+          { label: 'Extensions',      value: online ? (agentData?.extensionsServed ?? 0) : '—' },
           { label: 'Protocol fee',    value: '0.5%' },
         ].map(({ label, value }) => (
           <div key={label} className="stat-card">
@@ -246,10 +235,10 @@ export default function CompanyDashboard() {
         ))}
       </div>
 
-      {/* Contractor search */}
+      {/* ── Contractor search ───────────────────────────────────────────────── */}
       <ContractorSearch onSelect={handleSelectContractor} />
 
-      {/* Stream list */}
+      {/* ── Stream list ─────────────────────────────────────────────────────── */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-xs font-medium text-muted uppercase tracking-widest">Your streams</h2>
@@ -266,20 +255,22 @@ export default function CompanyDashboard() {
             ))}
           </div>
         ) : sent.length === 0 ? (
-          <div className="card border-dashed border-border/50 flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center mb-4">
-              <span className="text-xl font-mono text-muted">⬡</span>
+          <div className="card border-dashed border-border/50 flex flex-col items-center justify-center py-14 text-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-surface border border-border flex items-center justify-center">
+              <Inbox size={22} className="text-muted" />
             </div>
-            <p className="font-medium mb-1">No streams yet</p>
-            <p className="text-muted text-sm mb-5 max-w-xs">
-              Search for a contractor above or create your first stream to start paying per second.
-            </p>
-            <button className="btn-primary text-sm" onClick={() => openModal()}>
-              Create first stream
+            <div>
+              <p className="font-medium mb-1 text-sm">No streams yet</p>
+              <p className="text-muted text-xs max-w-xs leading-relaxed">
+                Search for a contractor above or tap New Stream to start paying per second.
+              </p>
+            </div>
+            <button className="btn-primary text-sm mt-1 flex items-center gap-2" onClick={() => openModal()}>
+              <Plus size={14} /> Create first stream
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 max-h-[560px] overflow-y-auto pr-0.5">
             {sent.map(s => (
               <StreamCard key={s.streamId} streamId={s.streamId} role="company" />
             ))}

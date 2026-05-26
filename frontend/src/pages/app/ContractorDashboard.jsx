@@ -5,12 +5,15 @@ import { formatUnits, parseAbiItem } from 'viem';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
+import { useNavigate } from 'react-router-dom';
+import { Inbox } from 'lucide-react';
 import { useProfile }     from '../../hooks/useProfile';
 import { useStreams }     from '../../hooks/useStreams';
 import { useAgentStatus } from '../../hooks/useAgentStatus';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 import { CHAIN_TOKENS }  from '../../hooks/useWalletTokens';
 import StreamCard         from '../../components/StreamCard';
+import MagneticDock       from '../../components/MagneticDock';
 
 // ─── Token meta ───────────────────────────────────────────────────────────────
 function tokenMeta(chainId, tokenAddress) {
@@ -317,10 +320,6 @@ function ProfileLinkBanner({ username }) {
       <button onClick={copy} className="btn-primary py-1.5 px-3 text-xs shrink-0">
         {copied ? '✓ Copied' : 'Copy'}
       </button>
-      <a href={url} target="_blank" rel="noopener noreferrer"
-        className="text-muted hover:text-white text-xs px-2 py-1.5 rounded-lg border border-border hover:border-white/20 transition-colors shrink-0">
-        ↗
-      </a>
     </div>
   );
 }
@@ -377,6 +376,8 @@ export default function ContractorDashboard() {
   const primaryToken = enriched.find(e => e.token)?.token ?? null;
   const { symbol: primarySymbol, decimals: primaryDecimals } = tokenMeta(chainId, primaryToken);
 
+  const navigate = useNavigate();
+
   const initials = profile?.name
     ? profile.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
     : '??';
@@ -399,11 +400,8 @@ export default function ContractorDashboard() {
               {profile?.username && <span className="text-xs text-muted font-mono">@{profile.username}</span>}
               <span className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted font-mono">contractor</span>
             </div>
-            <div className="flex items-center gap-3 mt-0.5 flex-wrap text-xs text-muted">
-              {profile?.github   && <a href={`https://github.com/${profile.github}`}       target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors font-mono">GitHub</a>}
-              {profile?.twitter  && <a href={`https://x.com/${profile.twitter}`}           target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">X</a>}
-              {profile?.linkedin && <a href={`https://linkedin.com/in/${profile.linkedin}`} target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">LinkedIn</a>}
-              {profile?.farcaster && <a href={`https://warpcast.com/${profile.farcaster}`} target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">Farcaster</a>}
+            <div className="mt-1.5">
+              <MagneticDock profile={profile} />
             </div>
           </div>
         </div>
@@ -477,15 +475,32 @@ export default function ContractorDashboard() {
       {/* ── Payment link ───────────────────────────────────────────────────── */}
       {profile?.username && <ProfileLinkBanner username={profile.username} />}
 
-      {/* ── Income chart ───────────────────────────────────────────────────── */}
-      {address && (
-        <IncomeChart
-          address={address}
-          chainId={chainId}
-          decimals={primaryDecimals}
-          symbol={primarySymbol ?? ''}
-        />
-      )}
+      {/* ── Income history shortcut ────────────────────────────────────────── */}
+      <button
+        onClick={() => navigate('/app/income')}
+        className="w-full card mb-6 flex items-center justify-between gap-4 hover:border-accent/30 hover:bg-accent/[0.02] transition-all text-left group"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl border border-border bg-dark flex items-center justify-center text-muted group-hover:text-accent group-hover:border-accent/30 transition-colors shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs font-mono text-muted uppercase tracking-widest">Income history</p>
+            {primarySymbol && (
+              <p className="text-sm font-mono text-white tabular-nums mt-0.5">
+                {parseFloat(formatUnits(totalWithdrawn, primaryDecimals)).toFixed(2)}
+                <span className="text-muted ml-1 text-xs">{primarySymbol}</span>
+              </p>
+            )}
+          </div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className="text-muted group-hover:text-accent transition-colors shrink-0">
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+      </button>
 
       {/* ── Active streams ─────────────────────────────────────────────────── */}
       <div>
@@ -515,12 +530,14 @@ export default function ContractorDashboard() {
           </div>
         ) : received.length === 0 ? (
           <div className="card border-dashed border-border/50 flex flex-col items-center justify-center py-14 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center mb-3 text-xl text-muted">↓</div>
+            <div className="w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center mb-3">
+              <Inbox size={20} className="text-muted" />
+            </div>
             <p className="font-medium mb-1 text-sm">No incoming streams</p>
             <p className="text-muted text-xs max-w-xs">When a company starts streaming to your wallet, it will appear here with a live balance.</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1">
             {received.map(s => (
               <StreamCard key={s.streamId} streamId={s.streamId} role="contractor" />
             ))}

@@ -277,12 +277,12 @@ export default function CreateStreamModal() {
   const needsApproval = allowance != null && totalCostRaw > 0n && allowance < totalCostRaw;
 
   // Approve
-  const { writeContract: doApprove, data: approveTxHash, isPending: approvePending } = useWriteContract();
+  const { writeContract: doApprove, data: approveTxHash, isPending: approvePending, error: approveError } = useWriteContract();
   const { isLoading: approveConfirming, isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveTxHash });
   useEffect(() => { if (approveSuccess) { refetchAllowance(); setStep(2); } }, [approveSuccess]);
 
   // Create
-  const { writeContract: doCreate, data: createTxHash, isPending: createPending } = useWriteContract();
+  const { writeContract: doCreate, data: createTxHash, isPending: createPending, error: createError } = useWriteContract();
   const { isLoading: createConfirming, isSuccess: createSuccess, data: createReceipt } = useWaitForTransactionReceipt({ hash: createTxHash });
 
   useEffect(() => {
@@ -500,6 +500,11 @@ export default function CreateStreamModal() {
                   <span className="text-accent font-bold">{totalCostDisplay} {selectedToken.symbol}</span>
                 </div>
               </div>
+              {approveError && (
+                <div className="text-xs text-red-400 font-mono bg-red-500/5 border border-red-500/20 rounded-xl px-4 py-2.5 break-all">
+                  {approveError.shortMessage ?? approveError.message ?? 'Approval failed'}
+                </div>
+              )}
               {needsApproval !== false ? (
                 <button onClick={() => doApprove({ address: form.token, abi: ERC20_ABI, functionName: 'approve', args: [getContractAddress(chainId), maxUint256] })}
                   disabled={approvePending || approveConfirming}
@@ -535,10 +540,21 @@ export default function CreateStreamModal() {
                   </div>
                 ))}
               </div>
-              <button onClick={() => doCreate({ address: getContractAddress(chainId), abi: ROUTER_ABI, functionName: 'createStream', args: [recipientAddr, form.token, ratePerSecond, durationSeconds] })}
-                disabled={createPending || createConfirming}
+              {createError && (
+                <div className="text-xs text-red-400 font-mono bg-red-500/5 border border-red-500/20 rounded-xl px-4 py-2.5 break-all">
+                  {createError.shortMessage ?? createError.message ?? 'Transaction failed'}
+                </div>
+              )}
+              {ratePerSecond === 0n && (
+                <div className="text-xs text-yellow-400 font-mono bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-2.5">
+                  ⚠ Rate too small — increase the amount or switch to a shorter unit (e.g. /day instead of /month)
+                </div>
+              )}
+              <button
+                onClick={() => doCreate({ address: getContractAddress(chainId), abi: ROUTER_ABI, functionName: 'createStream', args: [recipientAddr, form.token, ratePerSecond, durationSeconds] })}
+                disabled={createPending || createConfirming || ratePerSecond === 0n}
                 className="btn-primary w-full disabled:opacity-40">
-                {createPending ? 'Confirm in wallet…' : createConfirming ? 'Creating…' : 'Deposit & start stream'}
+                {createPending ? 'Confirm in wallet…' : createConfirming ? 'Creating stream…' : 'Deposit & start stream'}
               </button>
             </div>
           )}

@@ -5,10 +5,14 @@ import Landing       from './pages/Landing';
 import Privacy       from './pages/Privacy';
 import Terms         from './pages/Terms';
 import PublicProfile from './pages/PublicProfile';
-import Setup        from './pages/app/Setup';
-import Dashboard    from './pages/app/Dashboard';
-import StreamDetail from './pages/app/StreamDetail';
-import Settings     from './pages/app/Settings';
+import NotFound      from './pages/NotFound';
+import ErrorPage     from './pages/ErrorPage';
+import Setup         from './pages/app/Setup';
+import Dashboard     from './pages/app/Dashboard';
+import StreamDetail  from './pages/app/StreamDetail';
+import Settings      from './pages/app/Settings';
+import Profile       from './pages/app/Profile';
+import IncomeHistory from './pages/app/IncomeHistory';
 import AppShell     from './components/AppShell';
 import LogoLoader   from './components/LogoLoader';
 
@@ -42,10 +46,15 @@ export default function App() {
         <Route path="stream/create" element={<Navigate to="/app/dashboard" replace />} />
         <Route path="stream/:id"    element={<StreamDetail />} />
         <Route path="withdraw"      element={<Navigate to="/app/dashboard" replace />} />
+        <Route path="income"        element={<IncomeHistory />} />
+        <Route path="profile"       element={<Profile />} />
         <Route path="settings"      element={<Settings />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Dev preview only — remove before launch */}
+      {import.meta.env.DEV && <Route path="/error-preview" element={<ErrorPage error={{ message: 'Example runtime crash: Cannot read properties of undefined' }} />} />}
+
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
