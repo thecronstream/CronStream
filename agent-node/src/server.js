@@ -16,7 +16,7 @@ import rateLimit from 'express-rate-limit';
 
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
-import { submitExtension, getAllBalances }                    from './chainSubmitter.js';
+import { submitExtension, getAllBalances, readStreamBatch }   from './chainSubmitter.js';
 import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount } from './db.js';
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
@@ -769,8 +769,16 @@ app.get('/api/v1/stream-status/:streamId', async (req, res) => {
 
 // ─── GET /api/v1/streams?address=0x... ───────────────────────────────────────
 //
-// Returns all streams for a given sender or recipient address from the agent DB.
-// Faster and more reliable than scanning blockchain events from the frontend.
+// Returns all streams for an address, enriched with live on-chain data
+// (ratePerSecond, startTime, streamValidUntil, totalDeposited, totalWithdrawn,
+//  token, balance). The server reads the chain so the frontend never has to worry
+// about MetaMask's selected chain being different from the stream's chain.
+//
+// Results are cached for 30 s per address to avoid hammering the RPC.
+
+// Simple in-process cache — keyed by lowercase address
+const _streamsCache = new Map(); // address → { streams, ts }
+const STREAMS_CACHE_TTL_MS = 30_000;
 
 app.get('/api/v1/streams', async (req, res) => {
   const { address } = req.query;
@@ -779,9 +787,40 @@ app.get('/api/v1/streams', async (req, res) => {
     return res.status(400).json({ error: 'Invalid or missing address' });
   }
 
+  const addrKey = address.toLowerCase();
+
+  // Serve from cache if still fresh
+  const hit = _streamsCache.get(addrKey);
+  if (hit && Date.now() - hit.ts < STREAMS_CACHE_TTL_MS) {
+    return res.json({ address, streams: hit.streams });
+  }
+
   try {
-    const streams = await getStreamsForAddress(address);
-    return res.json({ address, streams });
+    const dbStreams = await getStreamsForAddress(address);
+
+    if (!dbStreams.length) {
+      return res.json({ address, streams: [] });
+    }
+
+    // Group by chainId so we make one batch per chain
+    const byChain = {};
+    for (const s of dbStreams) {
+      const cid = s.chain_id ?? 421614;
+      (byChain[cid] ??= []).push(s);
+    }
+
+    const enriched = [];
+    for (const [chainId, group] of Object.entries(byChain)) {
+      const onChain = await readStreamBatch(group.map(s => s.stream_id), Number(chainId));
+      for (let i = 0; i < group.length; i++) {
+        // On-chain data wins for overlapping fields (sender/recipient may be
+        // checksummed on-chain but lowercase in DB — use on-chain version)
+        enriched.push({ ...group[i], ...(onChain[i] ?? {}) });
+      }
+    }
+
+    _streamsCache.set(addrKey, { streams: enriched, ts: Date.now() });
+    return res.json({ address, streams: enriched });
   } catch (err) {
     console.error('[streams] Error:', err);
     return res.status(500).json({ error: 'Failed to fetch streams' });

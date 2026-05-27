@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useAccount, useChainId, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
-import { useReadContracts } from 'wagmi';
+import { useContractReadsForChain } from '../../hooks/useContractReadsForChain';
 import { formatUnits, parseAbiItem } from 'viem';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -333,37 +333,38 @@ export default function ContractorDashboard() {
   const { online }  = useAgentStatus();
   const [withdrawOpen, setWithdrawOpen] = useState(false);
 
-  const contractAddr = getContractAddress(chainId);
+  // Determine the primary chain from the streams (all should be on same chain).
+  // Falls back to wallet chain if DB streams have no chainId.
+  const streamChainId = received[0]?.chainId ?? chainId;
 
-  // Memoize to prevent new array refs on every render (avoids wagmi refetch storms)
   const streamIds = useMemo(() => received.map(s => s.streamId), [received]);
-  const metaCalls = useMemo(() => streamIds.map(id => ({ address: contractAddr, abi: ROUTER_ABI, functionName: 'streams',    args: [id] })), [streamIds, contractAddr]);
-  const balCalls  = useMemo(() => streamIds.map(id => ({ address: contractAddr, abi: ROUTER_ABI, functionName: 'balanceOf', args: [id] })), [streamIds, contractAddr]);
 
-  const { data: metaData, dataUpdatedAt } = useReadContracts({
-    contracts: metaCalls,
-    query: { enabled: streamIds.length > 0, refetchInterval: 10_000 },
+  // ── balanceOf reads — server gives a snapshot; we refresh here so LiveBalance
+  //    has a fresh anchor. streams() data comes from the server already. ────────
+  const balCalls = useMemo(() => received.map(s => ({
+    address:      getContractAddress(streamChainId),
+    abi:          ROUTER_ABI,
+    functionName: 'balanceOf',
+    args:         [s.streamId],
+  })), [streamIds, streamChainId]);
+
+  const balResults = useContractReadsForChain({
+    chainId:  streamChainId,
+    calls:    balCalls,
+    enabled:  streamIds.length > 0,
+    refetchInterval: 8_000,
   });
-  const { data: balData } = useReadContracts({
-    contracts: balCalls,
-    query: { enabled: streamIds.length > 0, refetchInterval: 8_000 },
-  });
 
-  const fetchedAt = dataUpdatedAt ?? Date.now();
+  // batchLoading = still waiting for useStreams API call to complete
+  const batchLoading = loading;
+  const balData = balResults.length > 0 ? balResults : null;
 
-  // Enrich streams with on-chain data
-  const enriched = useMemo(() => streamIds.map((id, i) => {
-    const meta = metaData?.[i]?.result;
-    return {
-      ...received[i],
-      token:         meta?.token         ?? null,
-      ratePerSecond: meta?.ratePerSecond ?? received[i].ratePerSecond ?? 0n,
-      totalDeposited: meta?.totalDeposited ?? 0n,
-      totalWithdrawn: meta?.totalWithdrawn ?? 0n,
-      streamValidUntil: meta?.streamValidUntil ?? 0n,
-      rawBalance:    balData?.[i]?.result ?? 0n,
-    };
-  }), [metaData, balData, received]);
+  // Enrich streams — data comes from server (ratePerSecond, streamValidUntil, etc.)
+  // balances refreshed by balResults above
+  const enriched = useMemo(() => received.map((s, i) => ({
+    ...s,
+    rawBalance: balData?.[i] ?? s.rawBalance ?? 0n,
+  })), [balData, received]);
 
   // Aggregate stats
   const totalClaimable  = enriched.reduce((s, e) => s + e.rawBalance, 0n);
@@ -545,8 +546,17 @@ export default function ContractorDashboard() {
           </div>
         ) : (
           <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1">
-            {received.map(s => (
-              <StreamCard key={s.streamId} streamId={s.streamId} role="contractor" />
+            {received.map((s, i) => (
+              <StreamCard
+                key={s.streamId}
+                streamId={s.streamId}
+                role="contractor"
+                chainId={s.chainId ?? streamChainId}
+                batchManaged
+                batchLoading={batchLoading}
+                streamData={s.streamValidUntil ? s : undefined}
+                rawBalance={balData?.[i] ?? s.rawBalance ?? undefined}
+              />
             ))}
           </div>
         )}

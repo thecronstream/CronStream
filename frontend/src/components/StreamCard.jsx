@@ -34,20 +34,36 @@ function timeRemaining(until) {
  * @param {string}  props.streamId
  * @param {'company'|'contractor'} props.role
  * @param {function} [props.onRefresh]
+ * @param {number}  [props.chainId]  — stream's chain (from DB); falls back to wallet chain
+ * @param {Array}   [props.streamData]    — pre-fetched tuple from parent batch read
+ * @param {bigint}  [props.rawBalance]    — pre-fetched balanceOf result
+ * @param {boolean} [props.batchManaged]  — true means parent owns the reads; skip internal useReadContract
+ * @param {boolean} [props.batchLoading]  — true while parent batch fetch is still in-flight
  */
-export default function StreamCard({ streamId, role, onRefresh }) {
-  const navigate = useNavigate();
-  const chainId  = useChainId();
+export default function StreamCard({ streamId, role, onRefresh, chainId: propChainId, streamData, rawBalance: propRawBalance, batchManaged, batchLoading }) {
+  const navigate      = useNavigate();
+  const walletChainId = useChainId();
+  const chainId       = propChainId ?? walletChainId;
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [reclaimSuccess, setReclaimSuccess] = useState(false);
 
-  const { data: stream, isLoading } = useReadContract({
+  // When the parent dashboard batch-fetches all streams (batchManaged=true), it passes
+  // batchLoading=true while the fetch is in flight, then sets it false once results arrive.
+  // Decoupling "is loading" from "result is undefined" lets us distinguish a pending fetch
+  // from a completed-but-failed read (the latter should hide the card, not spin forever).
+  const { data: fetchedStream, isLoading } = useReadContract({
+    chainId,
     address:      getContractAddress(chainId),
     abi:          ROUTER_ABI,
     functionName: 'streams',
     args:         [streamId],
-    query:        { refetchInterval: 30_000 },
+    query:        { enabled: !batchManaged, refetchInterval: 30_000 },
   });
+
+  const stream  = batchManaged ? streamData : fetchedStream;
+  // batchLoading=true  → fetch still in flight → show skeleton
+  // batchLoading=false → fetch done; if stream is still undefined the read failed → hide card
+  const loading = batchManaged ? (batchLoading ?? stream === undefined) : isLoading;
 
   const { writeContract: doReclaim, data: reclaimHash, isPending: reclaimPending } = useWriteContract();
   const { isLoading: reclaimConfirming } = useWaitForTransactionReceipt({
@@ -55,7 +71,7 @@ export default function StreamCard({ streamId, role, onRefresh }) {
     onSuccess: () => { setReclaimSuccess(true); onRefresh?.(); },
   });
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="card animate-pulse">
         <div className="h-4 bg-border rounded w-1/3 mb-3" />
@@ -65,11 +81,20 @@ export default function StreamCard({ streamId, role, onRefresh }) {
     );
   }
 
-  if (!stream || stream[0] === '0x0000000000000000000000000000000000000000') {
-    return null;
-  }
+  if (!stream) return null;
 
-  const [sender, recipient, token, ratePerSecond, startTime, streamValidUntil, totalDeposited, totalWithdrawn] = stream;
+  // stream can be an array (from useReadContract) or a named object (from readContract).
+  // Support both by trying numeric indices first, then named properties.
+  const sender           = stream[0] ?? stream.sender;
+  const recipient        = stream[1] ?? stream.recipient;
+  const token            = stream[2] ?? stream.token;
+  const ratePerSecond    = stream[3] ?? stream.ratePerSecond;
+  const startTime        = stream[4] ?? stream.startTime;
+  const streamValidUntil = stream[5] ?? stream.streamValidUntil;
+  const totalDeposited   = stream[6] ?? stream.totalDeposited;
+  const totalWithdrawn   = stream[7] ?? stream.totalWithdrawn;
+
+  if (!sender || sender === '0x0000000000000000000000000000000000000000') return null;
 
   const now       = BigInt(Math.floor(Date.now() / 1000));
   const isActive  = now < streamValidUntil;
@@ -86,6 +111,7 @@ export default function StreamCard({ streamId, role, onRefresh }) {
 
   function handleReclaim() {
     doReclaim({
+      chainId,
       address:      getContractAddress(chainId),
       abi:          ROUTER_ABI,
       functionName: role === 'company' ? 'reclaimUnearned' : 'withdrawFromStream',
@@ -129,6 +155,7 @@ export default function StreamCard({ streamId, role, onRefresh }) {
                   streamId={streamId}
                   ratePerSecond={ratePerSecond}
                   streamValidUntil={streamValidUntil}
+                  balance={propRawBalance ?? undefined}
                   className="text-base text-accent font-mono"
                 />
                 <span className="text-[10px] text-muted font-mono">{tokenLabel}</span>
@@ -221,6 +248,7 @@ export default function StreamCard({ streamId, role, onRefresh }) {
               streamId={streamId}
               ratePerSecond={ratePerSecond}
               streamValidUntil={streamValidUntil}
+              balance={propRawBalance ?? undefined}
               className="text-xl text-accent"
             />
             <div className="text-xs text-muted font-mono mt-0.5">{tokenLabel}</div>

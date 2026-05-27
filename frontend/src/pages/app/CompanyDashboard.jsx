@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAccount } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
+import { useContractReadsForChain } from '../../hooks/useContractReadsForChain';
 import { useProfile }      from '../../hooks/useProfile';
 import { useStreams }      from '../../hooks/useStreams';
 import { useAgentStatus }  from '../../hooks/useAgentStatus';
@@ -8,6 +9,17 @@ import { useCreateStream } from '../../context/CreateStreamContext';
 import { Plus, Inbox } from 'lucide-react';
 import StreamCard    from '../../components/StreamCard';
 import MagneticDock  from '../../components/MagneticDock';
+import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
+
+// ─── Helper: convert useStreams enriched row → StreamCard-compatible tuple/obj ──
+// StreamCard reads stream[0]??stream.sender etc. — just pass the enriched object.
+function toStreamData(s) {
+  // If the server enriched with on-chain data, these fields exist.
+  // If not (offline / DB only), they'll be 0n — card shows skeleton until refresh.
+  if (!s) return undefined;
+  if (s.sender && s.streamValidUntil) return s; // already enriched
+  return undefined; // not yet enriched — stay in loading state
+}
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
@@ -142,11 +154,38 @@ function ContractorSearch({ onSelect }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function CompanyDashboard() {
   const { address }   = useAccount();
+  const chainId       = useChainId();
   const { profile }   = useProfile(address);
   const { openModal } = useCreateStream();
   const navigate      = useNavigate();
   const { sent, loading } = useStreams();
   const { online, data: agentData } = useAgentStatus();
+
+  // Stream chain — comes from DB via useStreams (server enriched with chain_id)
+  const streamChainId = sent[0]?.chainId ?? chainId;
+  const sentIds = useMemo(() => sent.map(s => s.streamId), [sent]);
+
+  // ── balanceOf reads — server gives us a snapshot balance, we refresh it here
+  //    so LiveBalance has an up-to-date anchor to tick from. ───────────────────
+  const balCalls = useMemo(() => sent.map(s => ({
+    address:      getContractAddress(streamChainId),
+    abi:          ROUTER_ABI,
+    functionName: 'balanceOf',
+    args:         [s.streamId],
+  })), [sentIds, streamChainId]);
+
+  const balResults = useContractReadsForChain({
+    chainId:  streamChainId,
+    calls:    balCalls,
+    enabled:  sent.length > 0,
+    refetchInterval: 10_000,
+  });
+
+  // Stream struct data comes from the server (already enriched with on-chain fields).
+  // We no longer need a separate useContractReadsForChain for streams() reads.
+  // batchLoading = still waiting for useStreams to return results from the server.
+  const batchLoading = loading; // useStreams loading flag
+  const balData = balResults.length > 0 ? balResults : null;
 
   function handleSelectContractor(contractor) {
     openModal({ prefill: {
@@ -278,8 +317,17 @@ export default function CompanyDashboard() {
           </div>
         ) : (
           <div className="flex flex-col gap-3 max-h-[560px] overflow-y-auto pr-0.5">
-            {sent.map(s => (
-              <StreamCard key={s.streamId} streamId={s.streamId} role="company" />
+            {sent.map((s, i) => (
+              <StreamCard
+                key={s.streamId}
+                streamId={s.streamId}
+                role="company"
+                chainId={s.chainId ?? streamChainId}
+                batchManaged
+                batchLoading={batchLoading}
+                streamData={toStreamData(s)}
+                rawBalance={balData?.[i] ?? s.rawBalance ?? undefined}
+              />
             ))}
           </div>
         )}

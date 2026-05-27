@@ -9,11 +9,17 @@
 
 import { ethers } from 'ethers';
 
-// ─── Minimal ABI ─────────────────────────────────────────────────────────────
+// ─── ABIs ─────────────────────────────────────────────────────────────────────
 
 const ROUTER_ABI = [
   'function extendStreamWindowWithSignature(bytes32 streamId, uint256 extensionDurationSeconds, uint256 expiry, bytes calldata signature) external',
   'event StreamExtended(bytes32 indexed streamId, uint256 newValidUntil, uint256 newNonce)',
+];
+
+// Read-only ABI for stream data queries
+const STREAM_READ_ABI = [
+  'function streams(bytes32) external view returns (address sender, address recipient, address token, uint256 ratePerSecond, uint256 startTime, uint256 streamValidUntil, uint256 totalDeposited, uint256 totalWithdrawn, uint256 nonce)',
+  'function balanceOf(bytes32 streamId) external view returns (uint256)',
 ];
 
 // ─── Chain Config ─────────────────────────────────────────────────────────────
@@ -156,4 +162,58 @@ export async function getAllBalances() {
     }
   }
   return results;
+}
+
+/**
+ * Batch-read on-chain data for a list of stream IDs on a given chain.
+ * Returns one enriched object per stream (null if that stream's read failed).
+ *
+ * Result shape (all numeric fields as decimal strings so JSON transport is lossless):
+ * {
+ *   sender, recipient, token,
+ *   ratePerSecond, startTime, streamValidUntil,
+ *   totalDeposited, totalWithdrawn, nonce,
+ *   balance   ← balanceOf result
+ * }
+ *
+ * @param {string[]} streamIds  — 0x-prefixed bytes32 IDs
+ * @param {number}   chainId    — 421614 (Arb Sepolia) | 46630 (Robinhood)
+ * @returns {Promise<(object|null)[]>}
+ */
+export async function readStreamBatch(streamIds, chainId = 421614) {
+  if (!streamIds.length) return [];
+
+  const chain = CHAIN_CONFIG[chainId];
+  if (!chain) return streamIds.map(() => null);
+
+  const rpcUrl          = chain.rpcUrl();
+  const contractAddress = chain.contractAddress();
+  if (!rpcUrl || !contractAddress) return streamIds.map(() => null);
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const contract = new ethers.Contract(contractAddress, STREAM_READ_ABI, provider);
+
+  return Promise.all(streamIds.map(async (id) => {
+    try {
+      const [meta, bal] = await Promise.all([
+        contract.streams(id),
+        contract.balanceOf(id),
+      ]);
+      return {
+        sender:           meta.sender,
+        recipient:        meta.recipient,
+        token:            meta.token,
+        ratePerSecond:    meta.ratePerSecond.toString(),
+        startTime:        meta.startTime.toString(),
+        streamValidUntil: meta.streamValidUntil.toString(),
+        totalDeposited:   meta.totalDeposited.toString(),
+        totalWithdrawn:   meta.totalWithdrawn.toString(),
+        nonce:            meta.nonce.toString(),
+        balance:          bal.toString(),
+      };
+    } catch (err) {
+      console.warn(`[readStreamBatch] chain=${chainId} stream=${id}: ${err.message}`);
+      return null;
+    }
+  }));
 }

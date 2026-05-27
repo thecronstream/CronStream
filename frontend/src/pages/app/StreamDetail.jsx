@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useReadContract, useAccount, useChainId } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 import { useProfile } from '../../hooks/useProfile';
+import { useContractReadsForChain } from '../../hooks/useContractReadsForChain';
 import LiveBalance from '../../components/LiveBalance';
 import WithdrawModal from '../../components/WithdrawModal';
 
@@ -13,26 +14,60 @@ const TOKEN_LABELS = {
   '0x0000000000000000000000000000000000000002': 'AMZN',
 };
 
+// Chains to probe in order — add more as new chains are supported
+const PROBE_CHAINS = [421614];
+
 function short(addr, len = 6) {
   return addr ? `${addr.slice(0, len)}…${addr.slice(-4)}` : '—';
 }
 
 export default function StreamDetail() {
-  const { id }     = useParams();
-  const navigate   = useNavigate();
+  const { id }      = useParams();
+  const navigate    = useNavigate();
   const { address } = useAccount();
+  const walletChain = useChainId();
   const { profile } = useProfile(address);
-  const chainId    = useChainId();
 
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [copied, setCopied]             = useState(false);
 
-  const { data: stream, isLoading } = useReadContract({
-    address:      getContractAddress(chainId),
-    abi:          ROUTER_ABI,
-    functionName: 'streams',
-    args:         [id],
+  // ── Read the stream on Arb Sepolia directly (bypasses wagmi wallet-chain routing) ──
+  // We probe the primary chain first. If stream isn't there, the contract
+  // returns a zero-address sender which we treat as "not found".
+  const probeChainId = PROBE_CHAINS[0]; // 421614 — where all current streams live
+
+  const streamResults = useContractReadsForChain({
+    chainId: probeChainId,
+    calls: id ? [{
+      address:      getContractAddress(probeChainId),
+      abi:          ROUTER_ABI,
+      functionName: 'streams',
+      args:         [id],
+    }] : [],
+    enabled: !!id,
+    refetchInterval: 30_000,
   });
+
+  const balResults = useContractReadsForChain({
+    chainId: probeChainId,
+    calls: id ? [{
+      address:      getContractAddress(probeChainId),
+      abi:          ROUTER_ABI,
+      functionName: 'balanceOf',
+      args:         [id],
+    }] : [],
+    enabled: !!id,
+    refetchInterval: 10_000,
+  });
+
+  // streamResults[0] is undefined while fetching, then the tuple or undefined on error
+  const isLoading = streamResults.length === 0;
+  const stream    = streamResults[0];
+
+  // ── Debug: log what we actually got ──────────────────────────────────────
+  if (import.meta.env.DEV) {
+    console.log('[StreamDetail] id=%s chain=%d result=%o', id, probeChainId, stream);
+  }
 
   if (isLoading) {
     return (
@@ -47,16 +82,38 @@ export default function StreamDetail() {
     );
   }
 
-  if (!stream || stream[0] === '0x0000000000000000000000000000000000000000') {
+  const zeroAddr = '0x0000000000000000000000000000000000000000';
+  const sender   = stream?.[0] ?? stream?.sender;
+
+  if (!stream || !sender || sender === zeroAddr) {
     return (
       <div className="p-6">
-        <p className="text-muted mb-4">Stream not found.</p>
-        <button className="btn-outline" onClick={() => navigate('/app/dashboard')}>← Back</button>
+        <button
+          className="text-muted text-sm hover:text-white mb-6 flex items-center gap-1.5 transition-colors"
+          onClick={() => navigate(-1)}
+        >
+          ← Back
+        </button>
+        <div className="card text-center py-12">
+          <p className="text-muted mb-1">Stream not found</p>
+          <p className="text-xs text-muted/60 font-mono mb-4">{id}</p>
+          <button className="btn-outline text-sm" onClick={() => navigate('/app/dashboard')}>
+            ← Back to dashboard
+          </button>
+        </div>
       </div>
     );
   }
 
-  const [sender, recipient, token, ratePerSecond, startTime, streamValidUntil, totalDeposited, totalWithdrawn] = stream;
+  const recipient        = stream[1] ?? stream.recipient;
+  const token            = stream[2] ?? stream.token;
+  const ratePerSecond    = stream[3] ?? stream.ratePerSecond;
+  const startTime        = stream[4] ?? stream.startTime;
+  const streamValidUntil = stream[5] ?? stream.streamValidUntil;
+  const totalDeposited   = stream[6] ?? stream.totalDeposited;
+  const totalWithdrawn   = stream[7] ?? stream.totalWithdrawn;
+
+  const rawBalance = balResults[0] ?? 0n;
 
   const now         = BigInt(Math.floor(Date.now() / 1000));
   const isActive    = now < streamValidUntil;
@@ -164,13 +221,14 @@ export default function StreamDetail() {
         {/* Details grid */}
         <div className="card flex flex-col gap-0 divide-y divide-border">
           {[
-            { label: 'From',            value: sender,                                                    copy: sender },
-            { label: 'To',              value: recipient,                                                 copy: recipient },
-            { label: 'Token',           value: `${tokenLabel} · ${short(token)}`,                         mono: true },
+            { label: 'From',            value: sender,    copy: sender },
+            { label: 'To',              value: recipient, copy: recipient },
+            { label: 'Token',           value: `${tokenLabel} · ${short(token)}`, mono: true },
             { label: 'Rate',            value: `${ratePerDay.toFixed(4)} ${tokenLabel}/day · ${formatUnits(ratePerSecond, 6)}/sec`, mono: true },
             { label: 'Total deposited', value: `${parseFloat(formatUnits(totalDeposited, 6)).toFixed(4)} ${tokenLabel}`, mono: true },
             { label: 'Total withdrawn', value: `${parseFloat(formatUnits(totalWithdrawn, 6)).toFixed(4)} ${tokenLabel}`, mono: true },
             { label: 'Expires',         value: new Date(Number(streamValidUntil) * 1000).toLocaleString() },
+            { label: 'Chain',           value: `Arbitrum Sepolia (${probeChainId})`, mono: true },
           ].map(({ label, value, mono, copy }) => (
             <div key={label} className="flex justify-between items-center py-4 gap-4">
               <span className="text-muted text-xs uppercase tracking-widest shrink-0">{label}</span>
