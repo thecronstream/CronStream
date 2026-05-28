@@ -13,11 +13,11 @@ const ACCENT   = '#00D4AA';
 const ACCENT_DIM = 'rgba(0,212,170,0.15)';
 
 const STEPS = [
-  { step: '01', title: 'Company creates stream',   desc: 'Deposit full budget upfront. Set rate per second and duration.',                                icon: '⬡' },
-  { step: '02', title: 'Contractor ships code',     desc: 'Push commits, open PR, pass CI. Work is verifiable on GitHub.',                                icon: '↗' },
-  { step: '03', title: 'Agent verifies milestone',  desc: '3-layer check: code diff, merged PR, CI pass. All must pass.',                                 icon: '◎' },
-  { step: '04', title: 'Stream window extends',     desc: 'Agent signs EIP-712 voucher and submits on-chain. Contractor earns another window.',            icon: '⌛' },
-  { step: '05', title: 'Contractor withdraws',      desc: 'Pull earned tokens anytime. Protocol fee deducted automatically.',                             icon: '↩' },
+  { step: '01', title: 'Company creates stream',   desc: 'Deposit full budget upfront. Set rate per second and duration.',                     icon: 'https://img.icons8.com/color/48/commercial-development-management.png' },
+  { step: '02', title: 'Contractor ships code',    desc: 'Push commits, open PR, pass CI. Work is verifiable on GitHub.',                     icon: 'https://img.icons8.com/color/48/source-code.png' },
+  { step: '03', title: 'Agent verifies milestone', desc: '3-layer check: code diff, merged PR, CI pass. All must pass.',                      icon: 'https://img.icons8.com/color/48/artificial-intelligence.png' },
+  { step: '04', title: 'Stream window extends',    desc: 'Agent signs EIP-712 voucher and submits on-chain. Contractor earns another window.', icon: 'https://img.icons8.com/color/48/time.png' },
+  { step: '05', title: 'Contractor withdraws',     desc: 'Pull earned tokens anytime. Protocol fee deducted automatically.',                   icon: 'https://img.icons8.com/color/48/receive-cash.png' },
 ];
 
 // ─── Canvas pulse animation ───────────────────────────────────────────────────
@@ -189,7 +189,7 @@ export default function FlowDiagram() {
               className={`flex flex-col items-center gap-1 px-1 py-2 rounded-xl transition-colors
                 ${i === activeIdx ? 'text-accent' : 'text-muted hover:text-white'}`}
             >
-              <span className="text-lg">{s.icon}</span>
+              <img src={s.icon} alt={s.title} className="w-6 h-6 object-contain" />
               <span className="text-[10px] font-mono leading-tight text-center hidden sm:block">
                 {s.title.split(' ').slice(0, 2).join(' ')}
               </span>

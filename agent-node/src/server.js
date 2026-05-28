@@ -92,19 +92,12 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ─── Body Parsing ────────────────────────────────────────────────────────────
-// Store the raw buffer so the webhook route can verify the GitHub HMAC signature
-// against the original request bytes.
-app.use(
-  express.json({
-    limit: '5mb',   // raised from 100kb default — profile payloads can include base64 avatars
-    verify: (req, _res, buf) => {
-      // buf is a Buffer when content-type is application/json
-      // Guard against edge cases where buf may be undefined
-      if (buf && buf.length) req.rawBody = buf;
-    },
-  }),
-);
+// ─── Body Parsing ─────────────────────────────────────────────────────────────
+// Webhook path gets express.raw() first so the handler receives the exact bytes
+// for HMAC verification. Must be before express.json() so the stream isn't consumed.
+app.use('/api/v1/webhook/github', express.raw({ type: 'application/json', limit: '5mb' }));
+// All other routes get standard JSON parsing.
+app.use(express.json({ limit: '5mb' }));
 
 // ─── API Key Auth ─────────────────────────────────────────────────────────────
 // Keys are generated per-profile and stored as HMAC-SHA256 in the DB.
@@ -359,6 +352,9 @@ app.post('/api/v1/verify-milestone', sensitiveLimit, verifyJwtOrApiKey(getProfil
 // The agent parses these from the PR body to know which stream to extend.
 
 app.post('/api/v1/webhook/github', sensitiveLimit, async (req, res) => {
+  // req.body is a raw Buffer here (express.raw middleware registered above)
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
+
   // ── HMAC signature verification ───────────────────────────────────────────
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
 
@@ -369,12 +365,9 @@ app.post('/api/v1/webhook/github', sensitiveLimit, async (req, res) => {
       return res.status(401).json({ error: 'Missing X-Hub-Signature-256 header' });
     }
 
-    const rawBody = req.rawBody
-      ?? (req.body !== undefined ? Buffer.from(JSON.stringify(req.body)) : null);
-
-    if (!rawBody || !rawBody.length) {
-      console.warn('[webhook] rawBody unavailable — cannot verify signature');
-      return res.status(400).json({ error: 'Could not read request body for signature verification' });
+    if (!rawBody.length) {
+      console.warn('[webhook] Empty request body — cannot verify signature');
+      return res.status(400).json({ error: 'Empty request body' });
     }
 
     const expectedSig = `sha256=${crypto
@@ -394,14 +387,18 @@ app.post('/api/v1/webhook/github', sensitiveLimit, async (req, res) => {
     }
   } else {
     if (process.env.NODE_ENV === 'production') {
-      // In production, reject unsigned webhooks — GITHUB_WEBHOOK_SECRET must be set
       return res.status(401).json({ error: 'Webhook secret not configured — set GITHUB_WEBHOOK_SECRET' });
     }
     console.warn('[webhook] GITHUB_WEBHOOK_SECRET not set — signature check skipped (dev only)');
   }
 
-  const event   = req.headers['x-github-event'];
-  const payload = req.body;
+  const event = req.headers['x-github-event'];
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString('utf8'));
+  } catch {
+    return res.status(400).json({ error: 'Invalid JSON payload' });
+  }
 
   console.log(`[webhook] Received event: ${event} | action: ${payload.action}`);
 
