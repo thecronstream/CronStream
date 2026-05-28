@@ -369,7 +369,7 @@ export async function upsertProfile({ address, username, role, name, github, twi
       bitbucketUser       ?? null,
       encBitbucketPassword,      // AES-256-GCM encrypted
       encFigmaToken,             // AES-256-GCM encrypted
-      displayCurrency     ?? null,
+      displayCurrency     ?? 'USD',
       apiKeySentinel,
     ],
   });
