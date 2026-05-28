@@ -243,10 +243,10 @@ export default function CreateStreamModal() {
   // ── Derived numbers ──────────────────────────────────────────────────────────
   // Milestone window in seconds (BigInt)
   const windowSeconds   = BigInt(form.milestoneWindow || '86400');
-  const milestoneCount  = BigInt(Math.max(1, parseInt(form.milestoneCount || '1', 10)));
+  const milestoneCountInt = Math.max(1, parseInt(form.milestoneCount || '1', 10));
+  const milestoneCount    = BigInt(milestoneCountInt);
 
   // ratePerSecond = ceil(milestoneAmount / windowSeconds)
-  // Ceiling ensures contractor earns AT LEAST milestoneAmount per window.
   const milestoneRaw  = form.milestoneAmount ? parseUnits(form.milestoneAmount, decimals) : 0n;
   const ratePerSecond = milestoneRaw > 0n && windowSeconds > 0n
     ? (milestoneRaw + windowSeconds - 1n) / windowSeconds
@@ -255,16 +255,16 @@ export default function CreateStreamModal() {
   // Full contract duration = window × number of milestones
   const durationSeconds = windowSeconds * milestoneCount;
 
-  // Total deposit = rate × full duration — deposited upfront, exact amount approved
-  const totalCostRaw    = ratePerSecond > 0n ? ratePerSecond * durationSeconds : 0n;
-  // Per-milestone display (what contractor earns each window)
-  const perMilestoneRaw = ratePerSecond > 0n ? ratePerSecond * windowSeconds   : 0n;
+  // Total deposit = rate × full duration
+  const totalCostRaw = ratePerSecond > 0n ? ratePerSecond * durationSeconds : 0n;
+  const totalCostFloat = totalCostRaw > 0n ? parseFloat(formatUnits(totalCostRaw, decimals)) : 0;
 
   const totalCostDisplay = totalCostRaw > 0n
-    ? parseFloat(formatUnits(totalCostRaw, decimals)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ? totalCostFloat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : null;
-  const perMilestoneDisplay = perMilestoneRaw > 0n
-    ? parseFloat(formatUnits(perMilestoneRaw, decimals)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // Derive per-period from total so the math is always consistent
+  const perMilestoneDisplay = totalCostRaw > 0n
+    ? (totalCostFloat / milestoneCountInt).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
     : null;
 
   function handleClose() {
@@ -403,9 +403,12 @@ export default function CreateStreamModal() {
                 </label>
                 <div className="relative">
                   <input
-                    type="number" min="0" step="any"
+                    type="text" inputMode="decimal"
                     value={form.milestoneAmount} placeholder="500"
-                    onChange={e => setForm(f => ({ ...f, milestoneAmount: e.target.value }))}
+                    onChange={e => {
+                      const v = e.target.value;
+                      if (v === '' || /^\d*\.?\d*$/.test(v)) setForm(f => ({ ...f, milestoneAmount: v }));
+                    }}
                     className="input pr-16" required
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted text-xs font-mono">{selectedToken.symbol}</span>
