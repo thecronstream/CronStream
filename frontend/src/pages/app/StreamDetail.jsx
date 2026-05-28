@@ -204,6 +204,7 @@ export default function StreamDetail() {
 
   const now          = BigInt(Math.floor(Date.now() / 1000));
   const isActive     = streamValidUntil > 0n && now < streamValidUntil;
+  const isPending    = !isActive && (totalDeposited ?? 0n) > 0n && (streamValidUntil === 0n || streamValidUntil <= startTime);
   const duration     = streamValidUntil > startTime ? streamValidUntil - startTime : 0n;
   const elapsed      = isActive ? now - startTime : duration;
   const progressPct  = duration > 0n ? Math.min(Number((elapsed * 100n) / duration), 100) : 100;
@@ -296,7 +297,9 @@ export default function StreamDetail() {
           <h1 className="text-xl font-bold">Stream</h1>
           {isActive
             ? <span className="badge-active"><span className="w-1.5 h-1.5 rounded-full bg-accent pulse-dot" />Active</span>
-            : <span className="badge-expired">Expired</span>
+            : isPending
+            ? <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-yellow-500/30 text-yellow-400/80 bg-yellow-500/5"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400/60 animate-pulse" />Pending verification</span>
+            : <span className="badge-expired">Ended</span>
           }
           <button
             onClick={copyId}
@@ -370,8 +373,8 @@ export default function StreamDetail() {
                   />
                 )}
 
-                {/* Sender: reclaim unearned after expiry — only if there IS unearned */}
-                {isSender && !isActive && !reclaimSuccess && !cancelSuccess && hasUnearned && (
+                {/* Sender: reclaim unearned after expiry — only if there IS unearned and not pending */}
+                {isSender && !isActive && !isPending && !reclaimSuccess && !cancelSuccess && hasUnearned && (
                   <TxButton
                     label="Reclaim unearned"
                     pendingLabel="Confirm in wallet…"
@@ -385,8 +388,13 @@ export default function StreamDetail() {
                   />
                 )}
 
+                {/* Sender: pending — waiting for agent first verification */}
+                {isSender && isPending && (
+                  <span className="text-xs text-yellow-400/80 font-mono">Waiting for first agent verification</span>
+                )}
+
                 {/* Sender: info when nothing left to reclaim */}
-                {isSender && !isActive && !reclaimSuccess && !cancelSuccess && !hasUnearned && (
+                {isSender && !isActive && !isPending && !reclaimSuccess && !cancelSuccess && !hasUnearned && (
                   <span className="text-xs text-muted font-mono">
                     {resolvedBalance > 0n
                       ? 'Contractor earned all deposited funds'

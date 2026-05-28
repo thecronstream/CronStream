@@ -356,7 +356,11 @@ export default function CreateStreamModal() {
               {step < 3 && <StepDots current={step} total={3} />}
             </div>
           </div>
-          <button onClick={handleClose} className="text-muted hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-border transition-colors text-xl">×</button>
+          <button
+            onClick={handleClose}
+            disabled={approvePending || approveConfirming || createPending || createConfirming}
+            className="text-muted hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-border transition-colors text-xl disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted"
+          >×</button>
         </div>
 
         <div className="px-5 py-5 flex flex-col gap-4">

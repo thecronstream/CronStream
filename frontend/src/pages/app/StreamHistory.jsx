@@ -53,7 +53,7 @@ const STATUS_STYLES = {
   claimed: 'inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-border text-muted',
   expired: 'inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-border/40 text-muted/50',
 };
-const STATUS_LABEL = { active: 'Active', claimed: 'Claimed', expired: 'Expired' };
+const STATUS_LABEL = { active: 'Active', claimed: 'Claimed', expired: 'Ended' };
 const STATUS_ORDER = { active: 0, claimed: 1, expired: 2 };
 
 // ─── Stream detail modal ──────────────────────────────────────────────────────

@@ -408,14 +408,24 @@ export default function ContractorDashboard() {
   const totalWithdrawn  = enriched.reduce((s, e) => s + (e.totalWithdrawn ?? 0n), 0n);
   const now             = Math.floor(Date.now() / 1000);
 
-  // Active = streamValidUntil is set AND in the future (compare as number to handle BigInt/string/number)
+  // Active = streamValidUntil is set AND in the future
   function isStreamActive(e) {
     if (!e.streamValidUntil) return false;
     const until = Number(e.streamValidUntil);
     return !isNaN(until) && until > 0 && until > now;
   }
 
-  const activeStreams = enriched.filter(isStreamActive);
+  // Pending = deposit exists but first period not yet opened by agent (streamValidUntil <= startTime)
+  function isStreamPending(e) {
+    if (isStreamActive(e)) return false;
+    const deposited = BigInt(e.totalDeposited ?? 0n);
+    const until     = Number(e.streamValidUntil ?? 0);
+    const start     = Number(e.startTime ?? 0);
+    return deposited > 0n && (until === 0 || until <= start);
+  }
+
+  const activeStreams  = enriched.filter(isStreamActive);
+  const pendingStreams = enriched.filter(isStreamPending);
 
   // Claimable from active streams only (don't include expired — those go to Income page)
   const totalClaimable = activeStreams.reduce((s, e) => s + (e.rawBalance ?? 0n), 0n);
@@ -423,8 +433,8 @@ export default function ContractorDashboard() {
   // Only sum rate from actually-active streams so earning rate isn't inflated by expired ones
   const totalRate = activeStreams.reduce((s, e) => s + (e.ratePerSecond ?? 0n), 0n);
 
-  // Visible in the "current streams" list — active only; expired go to Income/History pages
-  const visibleStreams = activeStreams;
+  // Visible in the "current streams" list — active + pending
+  const visibleStreams = [...activeStreams, ...pendingStreams];
 
   // Primary token (most common) for chart + display
   const primaryToken = enriched.find(e => e.token)?.token ?? null;
@@ -521,7 +531,7 @@ export default function ContractorDashboard() {
             {received.length === 0
               ? 'no streams yet'
               : activeStreams.length === 0
-                ? `${received.length} expired`
+                ? `${received.length} ended`
                 : `of ${received.length} streams`}
           </p>
         </div>
@@ -587,6 +597,9 @@ export default function ContractorDashboard() {
           <div className="flex items-center gap-2">
             {activeStreams.length > 0 && (
               <span className="text-xs text-muted font-mono">{activeStreams.length} active</span>
+            )}
+            {pendingStreams.length > 0 && (
+              <span className="text-xs text-yellow-400/70 font-mono">{pendingStreams.length} pending</span>
             )}
           </div>
         </div>

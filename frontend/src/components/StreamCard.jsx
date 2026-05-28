@@ -98,7 +98,9 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
 
   const now       = BigInt(Math.floor(Date.now() / 1000));
   const isActive  = now < streamValidUntil;
-  const isExpired = !isActive;
+  // Pending = deposit exists but agent hasn't opened the first period yet
+  const isPending = !isActive && (totalDeposited ?? 0n) > 0n && (streamValidUntil === 0n || streamValidUntil <= startTime);
+  const isExpired = !isActive && !isPending;
 
   const duration    = streamValidUntil - startTime;
   const elapsed     = isActive ? now - startTime : duration;
@@ -108,6 +110,10 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
   const ratePerDay  = parseFloat(formatUnits(ratePerSecond, 6)) * 86400;
   const timeLeft    = timeRemaining(streamValidUntil);
   const counterpart = role === 'company' ? recipient : sender;
+  const unearned    = (totalDeposited ?? 0n) > 0n
+    ? (totalDeposited ?? 0n) - ((propRawBalance ?? 0n) + (totalWithdrawn ?? 0n))
+    : 0n;
+  const hasUnearned = unearned > 0n;
 
   function handleReclaim() {
     doReclaim({
@@ -143,8 +149,13 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
                     <span className="w-1.5 h-1.5 rounded-full bg-accent pulse-dot" />
                     Active
                   </span>
+                ) : isPending ? (
+                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-yellow-500/30 text-yellow-400/80 bg-yellow-500/5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400/60 animate-pulse" />
+                    Pending
+                  </span>
                 ) : (
-                  <span className="badge-expired shrink-0">Expired</span>
+                  <span className="badge-expired shrink-0">Ended</span>
                 )}
                 <span className="text-muted text-xs font-mono truncate">{short(counterpart)}</span>
               </div>
@@ -261,7 +272,7 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
                   {isActive ? 'Withdraw' : 'Claim remaining'}
                 </button>
               )}
-              {role === 'company' && isExpired && !reclaimSuccess && (
+              {role === 'company' && isExpired && hasUnearned && !reclaimSuccess && (
                 <button disabled={reclaimPending || reclaimConfirming}
                   className="btn-outline py-1.5 px-4 text-xs"
                   onClick={e => { e.stopPropagation(); handleReclaim(); }}>
@@ -280,7 +291,7 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
                 {isActive ? 'Withdraw' : 'Claim remaining'}
               </button>
             )}
-            {role === 'company' && isExpired && !reclaimSuccess && (
+            {role === 'company' && isExpired && hasUnearned && !reclaimSuccess && (
               <button disabled={reclaimPending || reclaimConfirming}
                 className="btn-outline py-2 px-4 text-xs"
                 onClick={e => { e.stopPropagation(); handleReclaim(); }}>

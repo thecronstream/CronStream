@@ -330,7 +330,7 @@ export default function CompanyHistory() {
             {sent.length === 0
               ? 'no streams yet'
               : activeCount === 0
-                ? `${sent.length} expired`
+                ? `${sent.length} ended`
                 : `of ${sent.length} streams`}
           </p>
         </div>
