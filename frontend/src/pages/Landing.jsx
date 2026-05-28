@@ -229,12 +229,12 @@ export default function Landing() {
               {isConnected ? 'Go to Dashboard' : 'Start streaming'}
             </button>
             <a
-              href="https://github.com/16navigabraham/CronStream"
+              href="https://docs.cronstream.xyz"
               target="_blank"
               rel="noopener noreferrer"
               className="btn-outline text-base py-3.5 px-8 font-semibold"
             >
-              View on GitHub
+              Read the docs
             </a>
           </div>
         </div>
@@ -494,7 +494,7 @@ export default function Landing() {
           </div>
           <span className="text-muted text-xs">Programmable payroll for business</span>
           <div className="flex gap-6 text-muted text-sm flex-wrap justify-center sm:justify-end">
-            <a href="https://github.com/16navigabraham/CronStream" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">GitHub</a>
+            <a href="https://docs.cronstream.xyz" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Docs</a>
             <a href="https://sepolia.arbiscan.io/address/0x3feb14d164EaA05a85e0276321E4F090a03549f9" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Arbiscan</a>
             <button onClick={() => navigate('/privacy')} className="hover:text-white transition-colors">Privacy</button>
             <button onClick={() => navigate('/terms')}   className="hover:text-white transition-colors">Terms</button>

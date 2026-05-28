@@ -19,6 +19,8 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "siwe": "^3.0.0",
     "x402-express": "^1.2.0"
   },
   "devDependencies": {

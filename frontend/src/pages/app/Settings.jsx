@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { Key, ShieldCheck, Zap, ExternalLink, Layers } from 'lucide-react';
 import { useProfile }     from '../../hooks/useProfile';
+import { useAuth }        from '../../context/AuthContext';
 import { useAgentStatus } from '../../hooks/useAgentStatus';
 import { useStreams }      from '../../hooks/useStreams';
 import { CONTRACT_ADDRESSES } from '../../lib/wagmi';
@@ -74,6 +75,7 @@ const INTEGRATIONS = [
 ];
 
 function IntegrationsSection({ profile, saveProfile, form, role }) {
+  const { authFetch } = useAuth();
   const [open,    setOpen]    = useState(null);
   const [editAll, setEditAll] = useState(false);
   const [creds,   setCreds]   = useState({});
@@ -117,7 +119,7 @@ function IntegrationsSection({ profile, saveProfile, form, role }) {
 
   async function handleSave(key) {
     setSaving(true);
-    await saveProfile({ ...form, role, ...creds });
+    await saveProfile({ ...form, role, ...creds }, { authFetch });
     setSaving(false);
     setSavedI(key);
     setTimeout(() => setSavedI(null), 2000);
@@ -130,7 +132,7 @@ function IntegrationsSection({ profile, saveProfile, form, role }) {
     if (!intg?.fields) return;
     const clear = {};
     intg.fields.forEach(f => { clear[f.name] = null; });
-    await saveProfile({ ...form, role, ...clear });
+    await saveProfile({ ...form, role, ...clear }, { authFetch });
     setOpen(null);
   }
 
@@ -248,13 +250,19 @@ function IntegrationsSection({ profile, saveProfile, form, role }) {
 export default function Settings() {
   const navigate    = useNavigate();
   const { address } = useAccount();
+  const { authFetch } = useAuth();
   const { profile, saveProfile } = useProfile(address);
   const { online, data: agentData } = useAgentStatus();
   const { sent, received } = useStreams();
 
-  const [tab,      setTab]      = useState('integrations');
-  const [keyVis,   setKeyVis]   = useState(false);
-  const [keyState, setKeyState] = useState('idle');
+  const [tab,         setTab]         = useState('integrations');
+  const [keyState,    setKeyState]    = useState('idle');
+  const [newKeyModal, setNewKeyModal] = useState(null); // plaintext key shown once
+  const [keyCopied,   setKeyCopied]   = useState(false);
+  const [hasKey,      setHasKey]      = useState(() => !!profile?.api_key_hash);
+
+  // Sync hasKey when profile loads
+  useEffect(() => { setHasKey(!!profile?.api_key_hash); }, [profile]);
 
   const role      = profile?.role ?? '';
   const isCompany = role === 'company';
@@ -263,14 +271,6 @@ export default function Settings() {
     twitter: profile?.twitter ?? '', linkedin: profile?.linkedin ?? '',
     farcaster: profile?.farcaster ?? '', website: profile?.website ?? '',
   };
-
-  const storageKey = address ? `cs_key_${address.toLowerCase()}` : null;
-  const [storedKey, setStoredKey] = useState(() => storageKey ? localStorage.getItem(storageKey) : null);
-  useEffect(() => { if (storageKey) setStoredKey(localStorage.getItem(storageKey)); }, [storageKey]);
-
-  const activeKey  = storedKey ?? null;
-  const hasKey     = !!activeKey;
-  const maskedKey  = activeKey ? `${activeKey.slice(0, 14)}${'•'.repeat(20)}` : '';
 
   // Redirect non-companies away
   useEffect(() => {
@@ -281,19 +281,24 @@ export default function Settings() {
     const chars  = 'abcdefghijklmnopqrstuvwxyz0123456789';
     const rand   = Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     const newKey = `cs_live_${rand}`;
-    localStorage.setItem(storageKey, newKey);
-    setStoredKey(newKey);
-    setKeyVis(true);
+    setNewKeyModal(newKey);
+    setKeyCopied(false);
     setKeyState('idle');
-    saveProfile({ ...form, role, apiKey: newKey });
+    setHasKey(true);
+    saveProfile({ ...form, role, apiKey: newKey }, { authFetch });
   }
 
   function deleteKey() {
-    localStorage.removeItem(storageKey);
-    setStoredKey(null);
-    setKeyVis(false);
     setKeyState('deleted');
-    saveProfile({ ...form, role, apiKey: null });
+    setHasKey(false);
+    saveProfile({ ...form, role, apiKey: null }, { authFetch });
+  }
+
+  function copyNewKey() {
+    navigator.clipboard.writeText(`Bearer ${newKeyModal}`).then(() => {
+      setKeyCopied(true);
+      setTimeout(() => setKeyCopied(false), 2000);
+    });
   }
 
   if (!isCompany) return null;
@@ -329,32 +334,50 @@ export default function Settings() {
       {/* ── Developer ───────────────────────────────────────────────────────── */}
       {tab === 'developer' && (
         <div>
-          <Section title="API Keys" desc="Use your API key to authenticate requests to the CronStream agent. Keep it secret — treat it like a password.">
-            <div className="bg-dark border border-border rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${hasKey && keyState !== 'deleted' ? 'bg-accent' : 'bg-border'}`} />
-                  <span className="text-sm font-medium">{hasKey && keyState !== 'deleted' ? 'Live key' : 'No active key'}</span>
-                </div>
-                {hasKey && keyState !== 'deleted' && (
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setKeyVis(v => !v)} className="text-xs text-muted hover:text-white transition-colors font-mono">
-                      {keyVis ? 'Hide' : 'Reveal'}
-                    </button>
-                    <button onClick={() => navigator.clipboard.writeText(`Bearer ${activeKey}`)} className="text-xs text-accent hover:text-accent/80 transition-colors font-mono">
-                      Copy
-                    </button>
+          {/* Show-once key modal */}
+          {newKeyModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-dark/80 backdrop-blur-sm px-4">
+              <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                    <Key size={16} className="text-accent" />
                   </div>
-                )}
+                  <div>
+                    <h3 className="font-semibold text-sm">Your API key</h3>
+                    <p className="text-xs text-muted">Copy it now — you won't be able to see it again.</p>
+                  </div>
+                </div>
+                <div className="bg-dark border border-border rounded-xl px-4 py-3 font-mono text-xs break-all text-white select-all">
+                  {newKeyModal}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={copyNewKey}
+                    className="flex-1 py-2.5 rounded-xl bg-accent text-dark font-semibold text-sm hover:bg-accent/90 transition-colors">
+                    {keyCopied ? 'Copied!' : 'Copy key'}
+                  </button>
+                  <button onClick={() => setNewKeyModal(null)}
+                    className="py-2.5 px-4 rounded-xl border border-border text-sm text-muted hover:text-white transition-colors">
+                    Done
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted/60 font-mono text-center">
+                  This key is stored as a hash on our servers. The plaintext is never saved.
+                </p>
               </div>
-              <div className="px-4 py-3 font-mono text-xs flex items-center gap-2">
+            </div>
+          )}
+
+          <Section title="API Keys" desc="Use your API key to authenticate requests to the CronStream agent. Keys are shown once at generation — store yours securely.">
+            <div className="bg-dark border border-border rounded-xl overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3">
+                <span className={`w-2 h-2 rounded-full ${hasKey && keyState !== 'deleted' ? 'bg-accent' : 'bg-border'}`} />
+                <span className="text-sm font-medium">{hasKey && keyState !== 'deleted' ? 'Active key' : 'No active key'}</span>
+              </div>
+              <div className="px-4 py-3 border-t border-border font-mono text-xs flex items-center gap-2">
                 <Key size={13} className="text-muted shrink-0" />
                 {!hasKey || keyState === 'deleted'
                   ? <span className="text-muted italic">Generate a key to start making API requests</span>
-                  : <span className="break-all text-white">
-                      <span className="text-muted">Authorization: </span>
-                      Bearer {keyVis ? activeKey : maskedKey}
-                    </span>
+                  : <span className="text-muted">cs_live_{'•'.repeat(32)}</span>
                 }
               </div>
             </div>
@@ -429,7 +452,7 @@ export default function Settings() {
           <Section title="Resources">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                { label: 'GitHub',             desc: 'Source code, contracts, agent node',  href: 'https://github.com/16navigabraham/CronStream' },
+                { label: 'Documentation',      desc: 'API reference, guides, and integration examples', href: 'https://docs.cronstream.xyz' },
                 { label: 'Arbiscan',           desc: 'Contract on Arbitrum Sepolia',         href: `https://sepolia.arbiscan.io/address/${CONTRACT_ADDRESSES[421614]}` },
                 { label: 'Robinhood Explorer', desc: 'Contract on Robinhood Chain',           href: `https://explorer.testnet.chain.robinhood.com/address/${CONTRACT_ADDRESSES[46630]}` },
                 { label: 'Arbitrum Faucet',    desc: 'Testnet ETH for gas',                  href: 'https://faucet.triangleplatform.com/arbitrum/sepolia' },

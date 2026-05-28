@@ -7,7 +7,7 @@ import { useStreams }      from '../../hooks/useStreams';
 import { useStreamEvents } from '../../hooks/useStreamEvents';
 import { useAgentStatus }  from '../../hooks/useAgentStatus';
 import { useCreateStream } from '../../context/CreateStreamContext';
-import { Plus, Inbox, History, ArrowRight } from 'lucide-react';
+import { Plus, Inbox, History, ArrowRight, Server } from 'lucide-react';
 import StreamCard    from '../../components/StreamCard';
 import MagneticDock  from '../../components/MagneticDock';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
@@ -285,18 +285,15 @@ export default function CompanyDashboard() {
                 <span className="text-[10px] px-2 py-0.5 rounded-full border border-accent/30 bg-accent/5 text-accent font-mono shrink-0">
                   company
                 </span>
-                {online !== null && (
-                  <span
-                    className={`sm:hidden w-2 h-2 rounded-full shrink-0 ${online ? 'bg-accent pulse-dot' : 'bg-muted/50'}`}
-                    title={online ? 'Agent online' : 'Agent offline'}
-                  />
-                )}
               </div>
               {online !== null && (
-                <div className={`hidden sm:inline-flex mt-1 items-center gap-1.5 text-[10px] font-mono px-2.5 py-1 rounded-full border
-                  ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-accent pulse-dot' : 'bg-muted'}`} />
-                  {online ? 'Agent online' : 'Offline'}
+                <div
+                  className={`mt-1 hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border
+                    ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted/60'}`}
+                  title={online ? 'Automation agent online' : 'Automation agent offline'}
+                >
+                  <Server size={11} />
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-accent pulse-dot' : 'bg-muted/50'}`} />
                 </div>
               )}
             </div>

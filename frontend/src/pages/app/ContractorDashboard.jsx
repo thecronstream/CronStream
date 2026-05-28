@@ -6,7 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
-import { Inbox, TrendingUp, Clock, ArrowRight } from 'lucide-react';
+import { Inbox, TrendingUp, Clock, ArrowRight, Server } from 'lucide-react';
 import { useProfile }          from '../../hooks/useProfile';
 import { useStreams }           from '../../hooks/useStreams';
 import { useStreamEvents }      from '../../hooks/useStreamEvents';
@@ -343,7 +343,7 @@ export default function ContractorDashboard() {
   const { profile } = useProfile(address);
   const { received, loading, refresh } = useStreams();
   useStreamEvents(refresh);
-  const { online }  = useAgentStatus();
+  const { online } = useAgentStatus();
 
   // Determine the primary chain from the streams (all should be on same chain).
   // Falls back to wallet chain if DB streams have no chainId.
@@ -462,13 +462,6 @@ export default function ContractorDashboard() {
               <h1 className="text-base font-bold truncate">{profile?.name ?? 'Dashboard'}</h1>
               {profile?.username && <span className="text-xs text-muted font-mono">@{profile.username}</span>}
               <span className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted font-mono">contractor</span>
-              {/* Agent dot — mobile only */}
-              {online !== null && (
-                <span
-                  className={`sm:hidden w-2 h-2 rounded-full shrink-0 ${online ? 'bg-accent pulse-dot' : 'bg-muted/50'}`}
-                  title={online ? 'Agent online' : 'Agent offline'}
-                />
-              )}
             </div>
             <div className="mt-1.5">
               <MagneticDock profile={profile} />
@@ -476,19 +469,16 @@ export default function ContractorDashboard() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {online !== null && (
-            <div className={`hidden sm:flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-full border
-              ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted'}`}>
-              <span className={`w-1 h-1 rounded-full ${online ? 'bg-accent pulse-dot' : 'bg-muted'}`} />
-              {online ? 'Agent online' : 'Offline'}
-            </div>
-          )}
-          {/* Go to income page — don't open dashboard modal for claimable amounts */}
-          <button onClick={() => navigate('/app/income')} className="btn-primary py-2 px-4 text-sm">
-            Income
-          </button>
-        </div>
+        {online !== null && (
+          <div
+            className={`shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-lg border
+              ${online ? 'border-accent/20 bg-accent/5 text-accent' : 'border-border text-muted/60'}`}
+            title={online ? 'Automation agent online' : 'Automation agent offline'}
+          >
+            <Server size={11} />
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-accent pulse-dot' : 'bg-muted/50'}`} />
+          </div>
+        )}
       </div>
 
       {/* ── KPI row ────────────────────────────────────────────────────────── */}

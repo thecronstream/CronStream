@@ -1,7 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // Prevent Node built-ins from leaking into browser bundles
+      buffer: 'buffer/',
+    },
+  },
+  define: {
+    'process.env': {},
+  },
 })

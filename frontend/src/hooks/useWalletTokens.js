@@ -28,12 +28,6 @@ export const CHAIN_TOKENS = {
       logoUrl:  'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg',
     },
     {
-      symbol:   'USDT',
-      address:  '0x7d42b6C7C3C7B0D1f2a5E6B4A9E0F3C2D1B8A7E5', // placeholder — swap for real Arb Sepolia USDT
-      decimals: 6,
-      logoUrl:  'https://cryptologos.cc/logos/tether-usdt-logo.svg',
-    },
-    {
       symbol:   'WETH',
       address:  '0x980B62Da83eFf3D4576C647993b0c1D7faf17c73',
       decimals: 18,
@@ -44,20 +38,32 @@ export const CHAIN_TOKENS = {
   // Robinhood Chain (46630)
   46630: [
     {
-      symbol:   'USDC',
-      address:  '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // placeholder — swap for real RH USDC
-      decimals: 6,
-      logoUrl:  'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg',
-    },
-    {
       symbol:   'TSLA',
-      address:  '0x0000000000000000000000000000000000000001', // placeholder
+      address:  '0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E',
       decimals: 18,
       logoUrl:  null,
     },
     {
       symbol:   'AMZN',
-      address:  '0x0000000000000000000000000000000000000002', // placeholder
+      address:  '0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02',
+      decimals: 18,
+      logoUrl:  null,
+    },
+    {
+      symbol:   'NFLX',
+      address:  '0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93',
+      decimals: 18,
+      logoUrl:  null,
+    },
+    {
+      symbol:   'AMD',
+      address:  '0x71178BAc73cBeb415514eB542a8995b82669778d',
+      decimals: 18,
+      logoUrl:  null,
+    },
+    {
+      symbol:   'PLTR',
+      address:  '0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0',
       decimals: 18,
       logoUrl:  null,
     },

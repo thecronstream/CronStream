@@ -9,6 +9,7 @@ import '@rainbow-me/rainbowkit/styles.css';
 import { wagmiConfig } from './lib/wagmi';
 import App from './App';
 import { CreateStreamProvider } from './context/CreateStreamContext';
+import { AuthProvider } from './context/AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
@@ -26,9 +27,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         })}>
           <BrowserRouter>
             <ErrorBoundary>
-              <CreateStreamProvider>
-                <App />
-              </CreateStreamProvider>
+              <AuthProvider>
+                <CreateStreamProvider>
+                  <App />
+                </CreateStreamProvider>
+              </AuthProvider>
             </ErrorBoundary>
           </BrowserRouter>
         </RainbowKitProvider>

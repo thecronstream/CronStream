@@ -102,8 +102,9 @@ export function useProfile(address) {
   }, [address]);
 
   // ── Save to server + caches ──────────────────────────────────────────────
-  const saveProfile = useCallback(async (data) => {
+  const saveProfile = useCallback(async (data, { authFetch } = {}) => {
     if (!address) return;
+    const _fetch = authFetch ?? fetch;
 
     const payload = {
       address,
@@ -136,7 +137,7 @@ export function useProfile(address) {
     invalidateCache(address);
 
     try {
-      const res = await fetch(`${AGENT_URL}/api/v1/profile`, {
+      const res = await _fetch(`${AGENT_URL}/api/v1/profile`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),

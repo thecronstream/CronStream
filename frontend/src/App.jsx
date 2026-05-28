@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 
 import Landing       from './pages/Landing';
+import SiwePrompt   from './components/SiwePrompt';
 import Privacy       from './pages/Privacy';
 import Terms         from './pages/Terms';
 import PublicProfile from './pages/PublicProfile';
@@ -23,7 +24,13 @@ function ProtectedRoute({ children }) {
   // Show 3D loader while wagmi is re-hydrating session from localStorage
   if (isConnecting || isReconnecting) return <LogoLoader label="Connecting…" />;
   if (!isConnected) return <Navigate to="/" replace />;
-  return children;
+  // Wallet connected but not yet SIWE-signed — show the sign prompt over the app
+  return (
+    <>
+      <SiwePrompt />
+      {children}
+    </>
+  );
 }
 
 export default function App() {

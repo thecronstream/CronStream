@@ -4,6 +4,7 @@ import { parseUnits, formatUnits, parseAbiItem } from 'viem';
 import { getContractAddress, ROUTER_ABI } from '../lib/wagmi';
 import { registerStreamWithAgent }      from '../hooks/useAgentStatus';
 import { useCreateStream }              from '../context/CreateStreamContext';
+import { useAuth }                      from '../context/AuthContext';
 import { useProfile }                  from '../hooks/useProfile';
 import RepoPicker                      from './RepoPicker';
 import Watermark                       from './Watermark';
@@ -189,6 +190,7 @@ export default function CreateStreamModal() {
   const { open, prefill, closeModal } = useCreateStream();
   const { address }   = useAccount();
   const { profile }   = useProfile(address);
+  const { authFetch } = useAuth();
   const publicClient  = usePublicClient();
   const chainId       = useChainId();
   const { tokens: walletTokens, isLoading: tokensLoading } = useWalletTokens(address, chainId);
@@ -317,6 +319,7 @@ export default function CreateStreamModal() {
               ratePerSecond:           ratePerSecond.toString(),
               extensionDurationSeconds: Number(windowSeconds),
               chainId,
+              authFetch,
             });
           }
         }

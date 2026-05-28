@@ -21,6 +21,7 @@ import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registe
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
+import { generateNonce, verifySiwe, issueJwt, verifyJwt, verifyJwtOrApiKey } from './auth.js';
 
 const app = express();
 
@@ -143,6 +144,27 @@ function getVoucherExpiry() {
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
 
+// ─── SIWE Auth ───────────────────────────────────────────────────────────────
+
+// GET /api/v1/auth/nonce — returns a one-time nonce for the client to embed in its SIWE message.
+// Nonces expire after 5 minutes and are single-use.
+app.get('/api/v1/auth/nonce', (_req, res) => {
+  res.json({ nonce: generateNonce() });
+});
+
+// POST /api/v1/auth/siwe — verify SIWE message + signature, issue JWT.
+// Body: { message: string, signature: string }
+app.post('/api/v1/auth/siwe', async (req, res) => {
+  const { message, signature } = req.body ?? {};
+  try {
+    const address = await verifySiwe({ message, signature });
+    const token   = issueJwt(address);
+    return res.json({ token, address, expiresIn: Number(process.env.JWT_TTL_SECONDS ?? 900) });
+  } catch (err) {
+    return res.status(401).json({ error: err.message ?? 'SIWE verification failed' });
+  }
+});
+
 // ─── Root ─────────────────────────────────────────────────────────────────────
 app.get('/', (_req, res) => {
   res.json({
@@ -217,7 +239,7 @@ app.get('/health', async (req, res) => {
 //   voucher:      { streamId, extensionDurationSeconds, nonce, expiry, signature }
 // }
 
-app.post('/api/v1/verify-milestone', sensitiveLimit, verifyApiKey, async (req, res) => {
+app.post('/api/v1/verify-milestone', sensitiveLimit, verifyJwtOrApiKey(getProfileByApiKey), async (req, res) => {
   const {
     streamId,
     contractorAddress,
@@ -580,7 +602,7 @@ app.get('/api/v1/profile/:address', async (req, res) => {
 // Create or update a profile. Role is set once and cannot be changed via this
 // endpoint if the profile already exists (enforced below).
 
-app.post('/api/v1/profile', async (req, res) => {
+app.post('/api/v1/profile', verifyJwt, async (req, res) => {
   const { address, role, name, github, twitter, linkedin, farcaster, website, avatarUrl, apiKey,
     jira_url: jiraUrl, jira_email: jiraEmail, jira_token: jiraToken,
     bitbucket_workspace: bitbucketWorkspace, bitbucket_user: bitbucketUser, bitbucket_password: bitbucketPassword,
@@ -588,6 +610,10 @@ app.post('/api/v1/profile', async (req, res) => {
 
   if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return res.status(400).json({ error: 'Valid address required' });
+  }
+  // JWT caller must match the address they're updating — prevents cross-wallet profile overwrites
+  if (req.callerAddress?.toLowerCase() !== address.toLowerCase()) {
+    return res.status(403).json({ error: 'You can only update your own profile' });
   }
   if (!role || !['company', 'contractor'].includes(role)) {
     return res.status(400).json({ error: 'role must be "company" or "contractor"' });
@@ -691,7 +717,7 @@ app.get('/api/v1/u/:username', async (req, res) => {
 //   ratePerSecond: "1234"  (bigint as string)
 // }
 
-app.post('/api/v1/register-stream', verifyApiKey, async (req, res) => {
+app.post('/api/v1/register-stream', verifyJwtOrApiKey(getProfileByApiKey), async (req, res) => {
   const {
     streamId,
     repo,                    // legacy field — kept for backwards compatibility
