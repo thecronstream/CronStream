@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { ExternalLink } from 'lucide-react';
 import { useProfile }  from '../../hooks/useProfile';
+import { useAuth }     from '../../context/AuthContext';
 import { useStreams }   from '../../hooks/useStreams';
 import { useAgentStatus } from '../../hooks/useAgentStatus';
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY } from '../../lib/currencies';
@@ -74,6 +75,7 @@ function FieldView({ label, value, prefix }) {
 export default function Profile() {
   const { address } = useAccount();
   const { profile, saveProfile } = useProfile(address);
+  const { authFetch } = useAuth();
   const { sent, received } = useStreams();
   const { data: agentData } = useAgentStatus();
   const avatarRef = useRef(null);
@@ -111,7 +113,7 @@ export default function Profile() {
 
   async function saveIdentity() {
     setForm(draftForm);
-    await saveProfile({ ...draftForm, role });
+    await saveProfile({ ...draftForm, role }, { authFetch });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setDraftForm(null);
@@ -129,14 +131,14 @@ export default function Profile() {
     reader.onload = ev => {
       const updated = { ...form, avatar: ev.target.result };
       setForm(updated);
-      saveProfile({ ...updated, role });
+      saveProfile({ ...updated, role }, { authFetch });
     };
     reader.readAsDataURL(file);
   }
 
   async function saveCurrency(code) {
     setDisplayCurrency(code);
-    await saveProfile({ ...form, role, display_currency: code });
+    await saveProfile({ ...form, role, display_currency: code }, { authFetch });
     setCurrencySaved(true);
     setTimeout(() => setCurrencySaved(false), 2000);
   }
