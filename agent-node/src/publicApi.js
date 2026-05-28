@@ -163,7 +163,17 @@ router.post('/verify-milestone', async (req, res) => {
       });
     }
 
-    const voucher = await signExtensionVoucher({ streamId, nonce, chainId });
+    // 7-day window; expiry gives 1 hour to submit the voucher on-chain
+    const extensionDurationSeconds = 7 * 24 * 60 * 60; // 604800
+    const expiry = Math.floor(Date.now() / 1000) + 3600;
+
+    const signature = await signExtensionVoucher({
+      streamId, nonce, chainId,
+      extensionDurationSeconds,
+      expiry,
+    });
+
+    const voucher = { streamId, extensionDurationSeconds, expiry, signature };
     return res.json({ success: true, voucher, nonce });
   } catch (err) {
     console.error('[publicApi:verify-milestone]', err);

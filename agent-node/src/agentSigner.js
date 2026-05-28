@@ -1,4 +1,3 @@
-
 /**
  * agentSigner.js
  * EIP-712 cryptographic signature engine for the CronStream agent node.
@@ -6,6 +5,10 @@
  * Signs ExtensionVoucher structs using the AGENT_SIGNER_PRIVATE_KEY.
  * The recovered signer must match the agentSigner address registered
  * in CronStreamRouter.sol for the on-chain verification to pass.
+ *
+ * Supports both Arbitrum Sepolia (421614) and Robinhood Chain (46630).
+ * The EIP-712 domain must be built per-chain — chainId and verifyingContract
+ * are both part of the domain separator hashed into the signature.
  */
 
 import { ethers } from 'ethers';
@@ -13,7 +16,7 @@ import { ethers } from 'ethers';
 // ─── EIP-712 Type Definitions ────────────────────────────────────────────────
 
 const EIP712_DOMAIN_BASE = {
-  name: 'CronStream',
+  name:    'CronStream',
   version: '1',
 };
 
@@ -27,36 +30,41 @@ const EXTENSION_VOUCHER_TYPES = {
   ],
 };
 
+// ─── Chain → contract address map ────────────────────────────────────────────
+
+const CONTRACT_BY_CHAIN = {
+  421614: () => process.env.CONTRACT_ADDRESS_ARB_SEPOLIA || process.env.CONTRACT_ADDRESS,
+  46630:  () => process.env.CONTRACT_ADDRESS_ROBINHOOD   || process.env.CONTRACT_ADDRESS,
+};
+
 // ─── Internal Helpers ────────────────────────────────────────────────────────
 
-/**
- * Lazily construct the wallet from the env private key.
- * Throws a clear error if the key is missing so the server fails fast at startup.
- */
 function getWallet() {
   const privateKey = process.env.AGENT_SIGNER_PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error('[agentSigner] AGENT_SIGNER_PRIVATE_KEY is not set in environment');
-  }
+  if (!privateKey) throw new Error('[agentSigner] AGENT_SIGNER_PRIVATE_KEY is not set');
   return new ethers.Wallet(privateKey);
 }
 
 /**
- * Build the EIP-712 domain object, hydrated with chain + contract from env.
- * These must match the values used in the CronStreamRouter constructor.
+ * Build the EIP-712 domain for a specific chain.
+ * chainId and verifyingContract are both included in the domain separator —
+ * a voucher signed for chain A will be rejected by the contract on chain B.
+ *
+ * @param {number} chainId - 421614 or 46630
  */
-function getDomain() {
-  const chainId = process.env.CHAIN_ID;
-  const verifyingContract = process.env.CONTRACT_ADDRESS;
+function getDomain(chainId) {
+  const resolver = CONTRACT_BY_CHAIN[chainId];
+  if (!resolver) throw new Error(`[agentSigner] Unsupported chainId: ${chainId}`);
 
-  if (!chainId)           throw new Error('[agentSigner] CHAIN_ID is not set in environment');
-  if (!verifyingContract) throw new Error('[agentSigner] CONTRACT_ADDRESS is not set in environment');
+  const verifyingContract = resolver();
+  if (!verifyingContract) {
+    throw new Error(
+      `[agentSigner] No contract address configured for chainId ${chainId}. ` +
+      `Set CONTRACT_ADDRESS_ARB_SEPOLIA or CONTRACT_ADDRESS_ROBINHOOD in env.`
+    );
+  }
 
-  return {
-    ...EIP712_DOMAIN_BASE,
-    chainId: Number(chainId),
-    verifyingContract,
-  };
+  return { ...EIP712_DOMAIN_BASE, chainId, verifyingContract };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -69,11 +77,12 @@ function getDomain() {
  * @param {number|bigint} params.extensionDurationSeconds - seconds to extend the stream window
  * @param {number|bigint} params.nonce                    - current stream nonce (from on-chain)
  * @param {number}        params.expiry                   - unix timestamp after which voucher is invalid
+ * @param {number}        params.chainId                  - 421614 (Arb Sepolia) or 46630 (Robinhood)
  * @returns {Promise<string>} 65-byte ECDSA signature (0x hex)
  */
-export async function signExtensionVoucher({ streamId, extensionDurationSeconds, nonce, expiry }) {
+export async function signExtensionVoucher({ streamId, extensionDurationSeconds, nonce, expiry, chainId }) {
   const wallet = getWallet();
-  const domain = getDomain();
+  const domain = getDomain(chainId ?? Number(process.env.CHAIN_ID ?? 421614));
 
   const value = {
     streamId,
@@ -84,14 +93,15 @@ export async function signExtensionVoucher({ streamId, extensionDurationSeconds,
 
   const signature = await wallet.signTypedData(domain, EXTENSION_VOUCHER_TYPES, value);
 
-  console.log(`[agentSigner] Signed voucher for stream ${streamId} | nonce=${nonce} | expiry=${expiry}`);
+  console.log(
+    `[agentSigner] Signed voucher | chain=${domain.chainId} stream=${streamId.slice(0, 10)}… nonce=${nonce} expiry=${expiry}`
+  );
   return signature;
 }
 
 /**
  * Return the public address that corresponds to AGENT_SIGNER_PRIVATE_KEY.
- * Used in the /health endpoint and startup log — lets you confirm the address
- * matches what's registered on-chain as agentSigner.
+ * Confirm this matches the agentSigner registered on-chain in CronStreamRouter.
  *
  * @returns {string} checksummed Ethereum address
  */
