@@ -36,13 +36,13 @@ const GITHUB_API_BASE      = 'https://api.github.com';
 const EXCLUDED_EXTENSIONS  = ['.md', '.txt', '.mdx', '.rst'];
 const SOURCE_PATH_PREFIXES = ['src/', 'contracts/'];
 
-async function githubGet(path) {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) throw new Error('[verifyMilestone] GITHUB_TOKEN is not set in environment');
+async function githubGet(path, token) {
+  const resolvedToken = token ?? process.env.GITHUB_TOKEN;
+  if (!resolvedToken) throw new Error('[verifyMilestone] No GitHub token available — connect GitHub in Settings or set GITHUB_TOKEN');
 
   const res = await fetch(`${GITHUB_API_BASE}${path}`, {
     headers: {
-      Authorization:          `Bearer ${token}`,
+      Authorization:          `Bearer ${resolvedToken}`,
       Accept:                 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent':           'CronStream-Agent-Node/1.0',
@@ -72,11 +72,12 @@ function checkCiStatus(githubPayload) {
   }
 }
 
-async function checkCodeDiff(owner, repo, prNumber) {
+async function checkCodeDiff(owner, repo, prNumber, token) {
   let page = 1, allFiles = [];
   while (true) {
     const files = await githubGet(
       `/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100&page=${page}`,
+      token,
     );
     if (!Array.isArray(files) || files.length === 0) break;
     allFiles = allFiles.concat(files);
@@ -102,7 +103,7 @@ async function checkCodeDiff(owner, repo, prNumber) {
   return qualifying;
 }
 
-async function verifyGitHub({ streamId, contractorAddress, githubPayload }) {
+async function verifyGitHub({ streamId, contractorAddress, githubPayload, companyCredentials }) {
   if (!githubPayload) {
     throw new VerificationError(0, 'githubPayload is required for source "github"');
   }
@@ -117,9 +118,12 @@ async function verifyGitHub({ streamId, contractorAddress, githubPayload }) {
   const prNumber = githubPayload?.pull_request?.number;
   if (!prNumber) throw new VerificationError(0, 'Missing pull_request.number in githubPayload');
 
+  // Use company's OAuth token for private repos; fall back to agent token for public
+  const githubToken = companyCredentials?.github_oauth_token ?? null;
+
   console.log(
     `[verifyMilestone:github] stream=${streamId} | contractor=${contractorAddress} | ` +
-    `repo=${owner}/${repoName} | PR#${prNumber}`,
+    `repo=${owner}/${repoName} | PR#${prNumber} | token=${githubToken ? 'company-oauth' : 'agent-env'}`,
   );
 
   // Layer 2 — PR merged? (no API call, fail fast)
@@ -131,7 +135,7 @@ async function verifyGitHub({ streamId, contractorAddress, githubPayload }) {
   console.log('[verifyMilestone:github] ✓ Layer 3 — CI/CD succeeded');
 
   // Layer 1 — Code diff in /src or /contracts?
-  const qualifyingFiles = await checkCodeDiff(owner, repoName, prNumber);
+  const qualifyingFiles = await checkCodeDiff(owner, repoName, prNumber, githubToken);
   console.log(`[verifyMilestone:github] ✓ Layer 1 — ${qualifyingFiles.length} qualifying file(s) changed`);
 
   return {
@@ -148,33 +152,38 @@ async function verifyGitHub({ streamId, contractorAddress, githubPayload }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function verifyJira({ streamId, target, credentials }) {
+  const oauthToken = credentials?.atlassian_access_token;
+  const cloudId    = credentials?.atlassian_cloud_id;
   const { jira_url: jiraUrl, jira_email: jiraEmail, jira_token: jiraToken } = credentials ?? {};
 
-  if (!jiraUrl || !jiraEmail || !jiraToken) {
+  const hasOAuth  = !!oauthToken && !!cloudId;
+  const hasBasic  = !!jiraUrl && !!jiraEmail && !!jiraToken;
+
+  if (!hasOAuth && !hasBasic) {
     throw new VerificationError(
       0,
-      'Jira credentials not configured — add workspace URL, email, and API token in Settings → Integrations',
+      'Jira not connected — connect Atlassian in Settings → Integrations',
     );
   }
 
-  // Extract ticket key from target.
-  // Accepted formats: "ABC-123", "https://acme.atlassian.net / ABC-123", "acme.atlassian.net ABC-123"
   const ticketKey = target.split(/[\s/]+/).filter(Boolean).pop().toUpperCase();
   if (!/^[A-Z][A-Z0-9]+-\d+$/.test(ticketKey)) {
-    throw new VerificationError(
-      0,
-      `Invalid Jira ticket key "${ticketKey}" — expected format: PROJECT-123`,
-    );
+    throw new VerificationError(0, `Invalid Jira ticket key "${ticketKey}" — expected format: PROJECT-123`);
   }
 
-  console.log(`[verifyMilestone:jira] stream=${streamId} | ticket=${ticketKey}`);
+  console.log(`[verifyMilestone:jira] stream=${streamId} | ticket=${ticketKey} | auth=${hasOAuth ? 'oauth' : 'basic'}`);
 
-  const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
-  const base = jiraUrl.replace(/\/$/, '');
+  let url, headers;
+  if (hasOAuth) {
+    url     = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/${ticketKey}`;
+    headers = { Authorization: `Bearer ${oauthToken}`, Accept: 'application/json' };
+  } else {
+    const auth = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+    url     = `${jiraUrl.replace(/\/$/, '')}/rest/api/3/issue/${ticketKey}`;
+    headers = { Authorization: `Basic ${auth}`, Accept: 'application/json' };
+  }
 
-  const res = await fetch(`${base}/rest/api/3/issue/${ticketKey}`, {
-    headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
-  });
+  const res = await fetch(url, { headers });
 
   if (res.status === 401) {
     throw new VerificationError(1, 'Jira authentication failed — check your email and API token');
@@ -220,7 +229,7 @@ async function checkBitbucketPipeline({ base, auth, workspace, repo, commitHash 
     res = await fetch(
       `${base}/repositories/${workspace}/${repo}/pipelines/` +
       `?target.commit.hash=${commitHash}&sort=-created_on&pagelen=1`,
-      { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } },
+      { headers: { Authorization: auth, Accept: 'application/json' } },
     );
   } catch {
     return; // network error — skip pipeline check gracefully
@@ -243,24 +252,27 @@ async function checkBitbucketPipeline({ base, auth, workspace, repo, commitHash 
 }
 
 async function verifyBitbucket({ streamId, target, credentials }) {
+  const oauthToken = credentials?.bitbucket_oauth_token;
   const {
     bitbucket_workspace: storedWorkspace,
     bitbucket_user:     user,
     bitbucket_password: password,
   } = credentials ?? {};
 
-  if (!storedWorkspace || !user || !password) {
+  const hasOAuth = !!oauthToken;
+  const hasBasic = !!storedWorkspace && !!user && !!password;
+
+  if (!hasOAuth && !hasBasic) {
     throw new VerificationError(
       0,
-      'Bitbucket credentials not configured — add workspace, username, and app password in Settings → Integrations',
+      'Bitbucket not connected — connect Bitbucket in Settings → Integrations',
     );
   }
 
-  // target: "workspace/repo" or "workspace/repo#42"
   const [repoPath, prNumStr] = target.split('#');
   const repoParts = repoPath.trim().split('/').filter(Boolean);
   const repo      = repoParts.pop();
-  const workspace = storedWorkspace.trim();
+  const workspace = (storedWorkspace ?? repoParts[0] ?? '').trim();
 
   if (!repo) {
     throw new VerificationError(
@@ -269,8 +281,11 @@ async function verifyBitbucket({ streamId, target, credentials }) {
     );
   }
 
-  const auth = Buffer.from(`${user}:${password}`).toString('base64');
+  const authHeader = hasOAuth
+    ? `Bearer ${oauthToken}`
+    : `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
   const base = 'https://api.bitbucket.org/2.0';
+  const auth = authHeader; // alias for readability below
 
   console.log(
     `[verifyMilestone:bitbucket] stream=${streamId} | repo=${workspace}/${repo}` +
@@ -282,7 +297,7 @@ async function verifyBitbucket({ streamId, target, credentials }) {
     const prNum = parseInt(prNumStr, 10);
     const res = await fetch(
       `${base}/repositories/${workspace}/${repo}/pullrequests/${prNum}`,
-      { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } },
+      { headers: { Authorization: auth, Accept: 'application/json' } },
     );
     if (res.status === 401) throw new VerificationError(1, 'Bitbucket authentication failed — check credentials');
     if (res.status === 404) throw new VerificationError(1, `Bitbucket PR #${prNum} not found in ${workspace}/${repo}`);
@@ -303,9 +318,9 @@ async function verifyBitbucket({ streamId, target, credentials }) {
     // Check the most recently merged PR
     const res = await fetch(
       `${base}/repositories/${workspace}/${repo}/pullrequests?state=MERGED&pagelen=1&sort=-updated_on`,
-      { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } },
+      { headers: { Authorization: auth, Accept: 'application/json' } },
     );
-    if (res.status === 401) throw new VerificationError(1, 'Bitbucket authentication failed — check credentials');
+    if (res.status === 401) throw new VerificationError(1, 'Bitbucket authentication failed — reconnect Bitbucket in Settings');
     if (!res.ok)            throw new VerificationError(1, `Bitbucket API error ${res.status} for ${workspace}/${repo}`);
 
     const data = await res.json();
@@ -333,12 +348,12 @@ const APPROVAL_KEYWORDS = [
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 async function verifyFigma({ streamId, target, credentials }) {
-  const { figma_token: token } = credentials ?? {};
+  const token = credentials?.figma_oauth_token ?? credentials?.figma_token ?? null;
 
   if (!token) {
     throw new VerificationError(
       0,
-      'Figma token not configured — add your personal access token in Settings → Integrations',
+      'Figma not connected — connect Figma in Settings → Integrations',
     );
   }
 
@@ -354,8 +369,12 @@ async function verifyFigma({ streamId, target, credentials }) {
 
   console.log(`[verifyMilestone:figma] stream=${streamId} | file=${fileKey}`);
 
+  const figmaHeaders = credentials?.figma_oauth_token
+    ? { Authorization: `Bearer ${token}` }
+    : { 'X-Figma-Token': token };
+
   const res = await fetch(`https://api.figma.com/v1/files/${fileKey}/comments`, {
-    headers: { 'X-Figma-Token': token },
+    headers: figmaHeaders,
   });
 
   if (res.status === 403) throw new VerificationError(1, 'Figma authentication failed — check your personal access token');
@@ -424,7 +443,7 @@ export async function verifyMilestone({
 }) {
   switch (verificationSource) {
     case 'github':
-      return verifyGitHub({ streamId, contractorAddress, githubPayload });
+      return verifyGitHub({ streamId, contractorAddress, githubPayload, companyCredentials });
 
     case 'jira':
       return verifyJira({ streamId, target: verificationTarget, credentials: companyCredentials });

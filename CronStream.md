@@ -3,6 +3,8 @@
 **Autonomous Verified Token Streaming for the Programmable Economy**
 **Target:** Arbitrum Open House Buildathon (Overall & Agentic Tracks)
 
+**App:** https://cronstream.xyz/ · **Docs:** https://docs.cronstream.xyz/ · **X:** https://x.com/cronstream
+
 ---
 
 ## 1. Executive Product Overview

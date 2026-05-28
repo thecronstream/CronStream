@@ -4,7 +4,12 @@
 
 Money flows to contractors only after an off-chain agent verifies real work — a merged pull request, a closed Jira ticket, an approved Figma design. No verified deliverable means no payment. The stream freezes automatically.
 
-> Built for the Robinhood Chain + Arbitrum hackathon.
+[![App](https://img.shields.io/badge/App-cronstream.xyz-00D4AA?style=flat-square)](https://cronstream.xyz)
+[![Docs](https://img.shields.io/badge/Docs-docs.cronstream.xyz-00D4AA?style=flat-square)](https://docs.cronstream.xyz)
+[![X](https://img.shields.io/badge/X-@cronstream-00D4AA?style=flat-square)](https://x.com/cronstream)
+[![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue?style=flat-square)](https://spdx.org/licenses/BUSL-1.1.html)
+
+> Built for the Arbitrum Open House Buildathon — Overall & Agentic Tracks.
 
 ---
 
@@ -124,5 +129,19 @@ Full docs: [docs.cronstream.xyz](https://docs.cronstream.xyz)
 
 ---
 
+## Links
+
+- **App:** https://cronstream.xyz
+- **Docs:** https://docs.cronstream.xyz
+- **X:** https://x.com/cronstream
+- **Arbitrum Sepolia:** https://sepolia.arbiscan.io/address/0x5A141097BAF8D88f665217817A1f89e1663f0C16
+
+---
+
 ## License
+
 Business Source License 1.1
+
+---
+
+Built by [Adebanjo Abraham](https://github.com/abrahamnavig)

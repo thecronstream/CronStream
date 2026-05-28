@@ -134,6 +134,16 @@ export async function initDb() {
     'ALTER TABLE stream_registry ADD COLUMN contract_address TEXT',
     // event_ref — stores PR#N or commit SHA; replaces pr_number as the replay-guard key
     'ALTER TABLE processed_extensions ADD COLUMN event_ref TEXT',
+    // OAuth tokens — companies connect their platforms via OAuth instead of pasting credentials
+    'ALTER TABLE profiles ADD COLUMN github_oauth_token      TEXT',
+    'ALTER TABLE profiles ADD COLUMN atlassian_access_token  TEXT',
+    'ALTER TABLE profiles ADD COLUMN atlassian_refresh_token TEXT',
+    'ALTER TABLE profiles ADD COLUMN atlassian_cloud_id      TEXT',
+    'ALTER TABLE profiles ADD COLUMN atlassian_expires_at    INTEGER',
+    'ALTER TABLE profiles ADD COLUMN bitbucket_oauth_token   TEXT',
+    'ALTER TABLE profiles ADD COLUMN bitbucket_refresh_token TEXT',
+    'ALTER TABLE profiles ADD COLUMN figma_oauth_token       TEXT',
+    'ALTER TABLE profiles ADD COLUMN figma_refresh_token     TEXT',
   ];
   for (const sql of migrations) {
     try { await db.execute(sql); } catch { /* column already exists */ }
@@ -517,6 +527,44 @@ export async function addToWaitlist({ email, role, companyName }) {
     }
     throw err;
   }
+}
+
+// ─── OAuth Token Storage ──────────────────────────────────────────────────────
+
+const OAUTH_COLS = {
+  github:    { access: 'github_oauth_token' },
+  atlassian: { access: 'atlassian_access_token', refresh: 'atlassian_refresh_token', cloudId: 'atlassian_cloud_id', expiresAt: 'atlassian_expires_at' },
+  bitbucket: { access: 'bitbucket_oauth_token',  refresh: 'bitbucket_refresh_token' },
+  figma:     { access: 'figma_oauth_token',       refresh: 'figma_refresh_token' },
+};
+
+export async function saveOAuthTokens(address, provider, { accessToken, refreshToken, cloudId, expiresAt } = {}) {
+  const db = getDb();
+  if (!db) return;
+  const cols = OAUTH_COLS[provider];
+  if (!cols) throw new Error(`Unknown OAuth provider: ${provider}`);
+
+  const sets = [`${cols.access} = ?`];
+  const args = [encrypt(accessToken)];
+
+  if (cols.refresh   && refreshToken != null) { sets.push(`${cols.refresh} = ?`);   args.push(encrypt(refreshToken)); }
+  if (cols.cloudId   && cloudId      != null) { sets.push(`${cols.cloudId} = ?`);   args.push(cloudId); }
+  if (cols.expiresAt && expiresAt    != null) { sets.push(`${cols.expiresAt} = ?`); args.push(expiresAt); }
+  sets.push('updated_at = unixepoch()');
+  args.push(address.toLowerCase());
+
+  await db.execute({ sql: `UPDATE profiles SET ${sets.join(', ')} WHERE address = ?`, args });
+}
+
+export async function disconnectOAuth(address, provider) {
+  const db = getDb();
+  if (!db) return;
+  const cols = OAUTH_COLS[provider];
+  if (!cols) throw new Error(`Unknown OAuth provider: ${provider}`);
+
+  const nullCols = Object.values(cols);
+  const sets = nullCols.map(c => `${c} = NULL`).join(', ');
+  await db.execute({ sql: `UPDATE profiles SET ${sets}, updated_at = unixepoch() WHERE address = ?`, args: [address.toLowerCase()] });
 }
 
 /**

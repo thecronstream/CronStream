@@ -17,7 +17,7 @@ import rateLimit from 'express-rate-limit';
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
 import { submitExtension, getAllBalances, readStreamBatch }   from './chainSubmitter.js';
-import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsByRepo, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount } from './db.js';
+import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsByRepo, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount, saveOAuthTokens, disconnectOAuth } from './db.js';
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
@@ -123,6 +123,164 @@ async function verifyApiKey(req, res, next) {
 
   return res.status(401).json({ error: 'Unauthorized — invalid API key' });
 }
+
+// ─── OAuth State Store ────────────────────────────────────────────────────────
+// Short-lived state map prevents CSRF — state ties the OAuth callback to a
+// specific wallet address. Expires after 10 minutes.
+
+const _oauthStates = new Map(); // state → { address, expiry }
+
+function createOAuthState(address) {
+  const state = crypto.randomBytes(16).toString('hex');
+  _oauthStates.set(state, { address, expiry: Date.now() + 600_000 });
+  return state;
+}
+
+function consumeOAuthState(state) {
+  const entry = _oauthStates.get(state);
+  _oauthStates.delete(state);
+  if (!entry || Date.now() > entry.expiry) return null;
+  return entry;
+}
+
+const FRONTEND_URL  = (process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/$/, '');
+const AGENT_EXT_URL = (process.env.AGENT_EXTERNAL_URL ?? `http://localhost:${process.env.PORT ?? 5000}`).replace(/\/$/, '');
+
+// ─── POST /api/v1/auth/:provider/initiate ────────────────────────────────────
+// JWT-authenticated. Returns the OAuth redirect URL so the frontend can navigate.
+
+app.post('/api/v1/auth/:provider/initiate', verifyJwt, (req, res) => {
+  const { provider } = req.params;
+  const address = req.callerAddress;
+  const state   = createOAuthState(address);
+  const cb      = `${AGENT_EXT_URL}/api/v1/auth/${provider}/callback`;
+
+  let redirectUrl;
+  switch (provider) {
+    case 'github':
+      if (!process.env.GITHUB_CLIENT_ID) return res.status(503).json({ error: 'GitHub OAuth not configured on this server' });
+      redirectUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=${encodeURIComponent('repo read:org')}&state=${state}&redirect_uri=${encodeURIComponent(cb)}`;
+      break;
+    case 'atlassian':
+      if (!process.env.ATLASSIAN_CLIENT_ID) return res.status(503).json({ error: 'Atlassian OAuth not configured on this server' });
+      redirectUrl = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${process.env.ATLASSIAN_CLIENT_ID}&scope=${encodeURIComponent('read:jira-work offline_access')}&redirect_uri=${encodeURIComponent(cb)}&state=${state}&response_type=code&prompt=consent`;
+      break;
+    case 'bitbucket':
+      if (!process.env.BITBUCKET_CLIENT_ID) return res.status(503).json({ error: 'Bitbucket OAuth not configured on this server' });
+      redirectUrl = `https://bitbucket.org/site/oauth2/authorize?client_id=${process.env.BITBUCKET_CLIENT_ID}&response_type=code&scope=${encodeURIComponent('repository pullrequest')}&state=${state}&redirect_uri=${encodeURIComponent(cb)}`;
+      break;
+    case 'figma':
+      if (!process.env.FIGMA_CLIENT_ID) return res.status(503).json({ error: 'Figma OAuth not configured on this server' });
+      redirectUrl = `https://www.figma.com/oauth?client_id=${process.env.FIGMA_CLIENT_ID}&redirect_uri=${encodeURIComponent(cb)}&scope=file_read&state=${state}&response_type=code`;
+      break;
+    default:
+      return res.status(400).json({ error: `Unknown provider: ${provider}` });
+  }
+
+  res.json({ redirectUrl });
+});
+
+// ─── GET /api/v1/auth/:provider/callback ─────────────────────────────────────
+// GitHub/Atlassian/Bitbucket/Figma redirect here after authorization.
+// Exchanges the code for a token, saves encrypted to profile, redirects to frontend.
+
+app.get('/api/v1/auth/:provider/callback', async (req, res) => {
+  const { provider }         = req.params;
+  const { code, state, error } = req.query;
+  const frontendReturn = `${FRONTEND_URL}/app/profile`;
+
+  if (error) {
+    return res.redirect(`${frontendReturn}?oauth=${provider}&status=error&message=${encodeURIComponent(error)}`);
+  }
+
+  const session = consumeOAuthState(state);
+  if (!session) {
+    return res.redirect(`${frontendReturn}?oauth=${provider}&status=error&message=Invalid+or+expired+state`);
+  }
+
+  const { address } = session;
+  const cb = `${AGENT_EXT_URL}/api/v1/auth/${provider}/callback`;
+
+  try {
+    switch (provider) {
+
+      case 'github': {
+        const r = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: process.env.GITHUB_CLIENT_ID, client_secret: process.env.GITHUB_CLIENT_SECRET, code, redirect_uri: cb }),
+        });
+        const d = await r.json();
+        if (!d.access_token) throw new Error(d.error_description ?? 'No access_token from GitHub');
+        await saveOAuthTokens(address, 'github', { accessToken: d.access_token });
+        break;
+      }
+
+      case 'atlassian': {
+        const r = await fetch('https://auth.atlassian.com/oauth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ grant_type: 'authorization_code', client_id: process.env.ATLASSIAN_CLIENT_ID, client_secret: process.env.ATLASSIAN_CLIENT_SECRET, code, redirect_uri: cb }),
+        });
+        const d = await r.json();
+        if (!d.access_token) throw new Error('No access_token from Atlassian');
+        // Fetch cloud ID (Jira workspace)
+        const rr   = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', { headers: { Authorization: `Bearer ${d.access_token}`, Accept: 'application/json' } });
+        const sites = await rr.json();
+        const cloudId    = Array.isArray(sites) ? (sites[0]?.id ?? null) : null;
+        const expiresAt  = d.expires_in ? Math.floor(Date.now() / 1000) + d.expires_in : null;
+        await saveOAuthTokens(address, 'atlassian', { accessToken: d.access_token, refreshToken: d.refresh_token, cloudId, expiresAt });
+        break;
+      }
+
+      case 'bitbucket': {
+        const creds = Buffer.from(`${process.env.BITBUCKET_CLIENT_ID}:${process.env.BITBUCKET_CLIENT_SECRET}`).toString('base64');
+        const r = await fetch('https://bitbucket.org/site/oauth2/access_token', {
+          method: 'POST',
+          headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: cb }),
+        });
+        const d = await r.json();
+        if (!d.access_token) throw new Error('No access_token from Bitbucket');
+        await saveOAuthTokens(address, 'bitbucket', { accessToken: d.access_token, refreshToken: d.refresh_token });
+        break;
+      }
+
+      case 'figma': {
+        const r = await fetch('https://api.figma.com/v1/oauth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ client_id: process.env.FIGMA_CLIENT_ID, client_secret: process.env.FIGMA_CLIENT_SECRET, redirect_uri: cb, code, grant_type: 'authorization_code' }),
+        });
+        const d = await r.json();
+        if (!d.access_token) throw new Error('No access_token from Figma');
+        await saveOAuthTokens(address, 'figma', { accessToken: d.access_token, refreshToken: d.refresh_token });
+        break;
+      }
+
+      default:
+        return res.redirect(`${frontendReturn}?oauth=${provider}&status=error&message=Unknown+provider`);
+    }
+
+    res.redirect(`${frontendReturn}?oauth=${provider}&status=success`);
+  } catch (err) {
+    console.error(`[oauth:${provider}/callback] Error:`, err.message);
+    res.redirect(`${frontendReturn}?oauth=${provider}&status=error&message=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// ─── DELETE /api/v1/auth/:provider ───────────────────────────────────────────
+// Disconnect a provider — clears their OAuth tokens from the profile.
+
+app.delete('/api/v1/auth/:provider', verifyJwt, async (req, res) => {
+  const { provider } = req.params;
+  try {
+    await disconnectOAuth(req.callerAddress, provider);
+    res.json({ success: true, provider });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { ExternalLink } from 'lucide-react';
 import { useProfile }  from '../../hooks/useProfile';
@@ -6,6 +7,8 @@ import { useAuth }     from '../../context/AuthContext';
 import { useStreams }   from '../../hooks/useStreams';
 import { useAgentStatus } from '../../hooks/useAgentStatus';
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY } from '../../lib/currencies';
+
+const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
 // ─── SVG brand icon ───────────────────────────────────────────────────────────
 const GithubIcon = () => (
@@ -89,6 +92,9 @@ export default function Profile() {
   const [draftForm,       setDraftForm]      = useState(null);
   const [displayCurrency, setDisplayCurrency] = useState(DEFAULT_CURRENCY);
   const [currencySaved,   setCurrencySaved]   = useState(false);
+  const [oauthToast,      setOauthToast]     = useState(null); // { provider, status, message }
+  const [connectingProvider, setConnectingProvider] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     if (profile) {
@@ -104,6 +110,42 @@ export default function Profile() {
       setDisplayCurrency(profile.display_currency ?? DEFAULT_CURRENCY);
     }
   }, [profile]);
+
+  // Detect OAuth callback redirect (?oauth=github&status=success)
+  useEffect(() => {
+    const provider = searchParams.get('oauth');
+    const status   = searchParams.get('status');
+    const message  = searchParams.get('message');
+    if (!provider || !status) return;
+    setOauthToast({ provider, status, message });
+    setTimeout(() => setOauthToast(null), 5000);
+    setSearchParams({}, { replace: true });
+  }, []);
+
+  const connectOAuth = useCallback(async (provider) => {
+    setConnectingProvider(provider);
+    try {
+      const res = await authFetch(`${AGENT_URL}/api/v1/auth/${provider}/initiate`, { method: 'POST' });
+      const { redirectUrl } = await res.json();
+      window.location.href = redirectUrl;
+    } catch {
+      setOauthToast({ provider, status: 'error', message: 'Could not start OAuth flow' });
+      setTimeout(() => setOauthToast(null), 4000);
+      setConnectingProvider(null);
+    }
+  }, [authFetch]);
+
+  const disconnectOAuth = useCallback(async (provider) => {
+    try {
+      await authFetch(`${AGENT_URL}/api/v1/auth/${provider}`, { method: 'DELETE' });
+      setOauthToast({ provider, status: 'disconnected' });
+      setTimeout(() => setOauthToast(null), 3000);
+      await saveProfile({ ...form, role }, { authFetch });
+    } catch {
+      setOauthToast({ provider, status: 'error', message: 'Disconnect failed' });
+      setTimeout(() => setOauthToast(null), 4000);
+    }
+  }, [authFetch, form, role, saveProfile]);
 
   const role      = profile?.role ?? '';
   const isCompany = role === 'company';
@@ -349,7 +391,65 @@ export default function Profile() {
         <Section title="Wallet">
           <CopyField label="Connected wallet" value={address ?? ''} />
         </Section>
+
+        {isCompany && (
+          <Section
+            title="Integrations"
+            desc="Connect your platforms. The agent uses these to verify contractor work before releasing payment."
+          >
+            {[
+              { provider: 'github',    label: 'GitHub',    desc: 'Private & public repos',         connectedKey: 'github_connected' },
+              { provider: 'atlassian', label: 'Jira',      desc: 'Ticket status verification',     connectedKey: 'atlassian_connected' },
+              { provider: 'bitbucket', label: 'Bitbucket', desc: 'PR merge verification',          connectedKey: 'bitbucket_connected' },
+              { provider: 'figma',     label: 'Figma',     desc: 'Design approval verification',   connectedKey: 'figma_connected' },
+            ].map(({ provider, label, desc, connectedKey }) => {
+              const connected = !!profile?.[connectedKey];
+              const loading   = connectingProvider === provider;
+              return (
+                <div key={provider} className="flex items-center justify-between gap-4 py-1">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-white">{label}</div>
+                    <div className="text-xs text-muted">{desc}</div>
+                  </div>
+                  {connected ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-accent font-mono">✓ Connected</span>
+                      <button
+                        type="button"
+                        onClick={() => disconnectOAuth(provider)}
+                        className="text-xs text-muted hover:text-red-400 transition-colors font-mono border border-border px-2.5 py-1 rounded-lg hover:border-red-500/30"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => connectOAuth(provider)}
+                      className="shrink-0 text-xs font-mono border border-accent/40 bg-accent/10 text-accent px-3 py-1.5 rounded-lg hover:bg-accent/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Redirecting…' : `Connect ${label}`}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </Section>
+        )}
       </form>
+
+      {/* OAuth toast */}
+      {oauthToast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl border text-sm font-mono shadow-lg
+          ${oauthToast.status === 'success'      ? 'bg-accent/10 border-accent/30 text-accent' :
+            oauthToast.status === 'disconnected' ? 'bg-dark border-border text-muted' :
+            'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+          {oauthToast.status === 'success'      ? `✓ ${oauthToast.provider} connected` :
+           oauthToast.status === 'disconnected' ? `${oauthToast.provider} disconnected` :
+           `${oauthToast.provider}: ${oauthToast.message ?? 'Connection failed'}`}
+        </div>
+      )}
     </div>
   );
 }
