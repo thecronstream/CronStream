@@ -318,6 +318,7 @@ export default function CreateStreamModal() {
               verificationTarget:      form.verificationTarget,
               recipient:               recipientAddr,
               ratePerSecond:           ratePerSecond.toString(),
+              token:                   form.token,
               extensionDurationSeconds: Number(windowSeconds),
               chainId,
               authFetch,

@@ -364,7 +364,7 @@ app.post('/api/v1/verify-milestone', sensitiveLimit, devAuth(getProfileByApiKey)
 //   CronStream-Nonce: <integer>
 // The agent parses these from the PR body to know which stream to extend.
 
-app.post('/api/v1/webhook/github', sensitiveLimit, async (req, res, next) => { try {
+app.post('/api/v1/webhook/github', async (req, res, next) => { try {
   // req.body is a raw Buffer when express.raw() ran (application/json content-type).
   // Fall back to empty buffer for malformed requests — HMAC check will reject them.
   const rawBody = Buffer.isBuffer(req.body)
@@ -755,6 +755,7 @@ app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res
     verificationTarget,
     recipient,
     ratePerSecond,
+    token,
     chainId: bodyChainId,
   } = req.body;
 
@@ -784,7 +785,7 @@ app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res
       sender:             req.callerAddress ?? null,
       recipient:          recipient ?? null,
       ratePerSecond:      ratePerSecond ?? null,
-      token:              null,
+      token:              token ?? null,
       contractAddress,
     });
 

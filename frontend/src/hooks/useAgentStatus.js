@@ -53,6 +53,7 @@ export async function registerStreamWithAgent({
   verificationTarget,
   recipient,
   ratePerSecond,
+  token,
   extensionDurationSeconds,
   chainId,
   authFetch,               // pass useAuth().authFetch to include JWT
@@ -70,6 +71,7 @@ export async function registerStreamWithAgent({
         verificationTarget,
         recipient,
         ratePerSecond,
+        token,
         extensionDurationSeconds,
         chainId,
       }),
