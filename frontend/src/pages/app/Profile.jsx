@@ -140,12 +140,11 @@ export default function Profile() {
       await authFetch(`${AGENT_URL}/api/v1/auth/${provider}`, { method: 'DELETE' });
       setOauthToast({ provider, status: 'disconnected' });
       setTimeout(() => setOauthToast(null), 3000);
-      await saveProfile({ ...form, role }, { authFetch });
     } catch {
       setOauthToast({ provider, status: 'error', message: 'Disconnect failed' });
       setTimeout(() => setOauthToast(null), 4000);
     }
-  }, [authFetch, form, role, saveProfile]);
+  }, [authFetch]);
 
   const role      = profile?.role ?? '';
   const isCompany = role === 'company';
