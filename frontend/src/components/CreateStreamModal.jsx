@@ -296,8 +296,8 @@ export default function CreateStreamModal() {
   const { writeContract: doApprove, data: approveTxHash, isPending: approvePending, error: approveError } = useWriteContract();
   const { isLoading: approveConfirming, isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveTxHash });
   useEffect(() => { if (approveSuccess) { refetchAllowance(); setStep(2); } }, [approveSuccess]);
-  // Auto-advance past approve step when allowance is already sufficient
-  useEffect(() => { if (step === 1 && needsApproval === false) setStep(2); }, [step, needsApproval]);
+  // Auto-advance past approve step only once allowance has loaded and is sufficient
+  useEffect(() => { if (step === 1 && allowance != null && !needsApproval) setStep(2); }, [step, allowance, needsApproval]);
 
   // Create
   const { writeContract: doCreate, data: createTxHash, isPending: createPending, error: createError } = useWriteContract();
@@ -541,9 +541,9 @@ export default function CreateStreamModal() {
               )}
               {needsApproval !== false ? (
                 <button onClick={() => doApprove({ address: form.token, abi: ERC20_ABI, functionName: 'approve', args: [getContractAddress(chainId), totalCostRaw] })}
-                  disabled={approvePending || approveConfirming}
+                  disabled={approvePending || !!approveTxHash}
                   className="btn-primary w-full disabled:opacity-40">
-                  {approvePending ? 'Confirm in wallet…' : approveConfirming ? 'Approving…' : `Approve ${totalCostDisplay} ${selectedToken.symbol}`}
+                  {approvePending ? 'Confirm in wallet…' : approveTxHash ? 'Approving…' : `Approve ${totalCostDisplay} ${selectedToken.symbol}`}
                 </button>
               ) : (
                 <div className="flex flex-col gap-2">
@@ -586,9 +586,9 @@ export default function CreateStreamModal() {
               )}
               <button
                 onClick={() => doCreate({ address: getContractAddress(chainId), abi: ROUTER_ABI, functionName: 'createStream', args: [recipientAddr, form.token, ratePerSecond, 0n, totalCostRaw] })}
-                disabled={createPending || createConfirming || ratePerSecond === 0n}
+                disabled={createPending || !!createTxHash || ratePerSecond === 0n}
                 className="btn-primary w-full disabled:opacity-40">
-                {createPending ? 'Confirm in wallet…' : createConfirming ? 'Creating stream…' : 'Deposit & create stream'}
+                {createPending ? 'Confirm in wallet…' : createTxHash ? 'Creating stream…' : 'Deposit & create stream'}
               </button>
             </div>
           )}
