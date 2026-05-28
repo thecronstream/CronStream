@@ -259,10 +259,10 @@ export default function Settings() {
   const [keyState,    setKeyState]    = useState('idle');
   const [newKeyModal, setNewKeyModal] = useState(null); // plaintext key shown once
   const [keyCopied,   setKeyCopied]   = useState(false);
-  const [hasKey,      setHasKey]      = useState(() => !!profile?.api_key_hash);
+  const [hasKey,      setHasKey]      = useState(() => !!profile?.has_api_key);
 
   // Sync hasKey when profile loads
-  useEffect(() => { setHasKey(!!profile?.api_key_hash); }, [profile]);
+  useEffect(() => { setHasKey(!!profile?.has_api_key); }, [profile]);
 
   const role      = profile?.role ?? '';
   const isCompany = role === 'company';

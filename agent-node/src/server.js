@@ -21,7 +21,7 @@ import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registe
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
-import { generateNonce, verifySiwe, issueJwt, verifyJwt, verifyJwtOrApiKey } from './auth.js';
+import { generateNonce, verifySiwe, issueJwt, verifyJwt, verifyJwtOrApiKey, verifyJwtOrApiKeyOrX402 } from './auth.js';
 
 const app = express();
 
@@ -172,6 +172,19 @@ app.get('/', (_req, res) => {
 // ─── Public API (x402 pay-per-call) ──────────────────────────────────────────
 app.use('/api/public', publicApiRouter);
 
+// ─── x402 config for developer endpoints ─────────────────────────────────────
+// Used by verifyJwtOrApiKeyOrX402 on register-stream and verify-milestone.
+let _x402PayTo;
+try { _x402PayTo = getSignerAddress(); } catch { /* no key in dev */ }
+const _x402Opts = {
+  payTo:   _x402PayTo,
+  network: process.env.X402_NETWORK ?? 'base-sepolia',
+};
+
+function devAuth(fn) {
+  return verifyJwtOrApiKeyOrX402(fn, _x402Opts);
+}
+
 app.get('/health', async (req, res) => {
   // Detailed health info (signer address, balances) only for internal/authenticated callers.
   // Public callers get a minimal status — enough for uptime monitors, nothing for attackers.
@@ -232,7 +245,7 @@ app.get('/health', async (req, res) => {
 //   voucher:      { streamId, extensionDurationSeconds, nonce, expiry, signature }
 // }
 
-app.post('/api/v1/verify-milestone', sensitiveLimit, verifyJwtOrApiKey(getProfileByApiKey), async (req, res) => {
+app.post('/api/v1/verify-milestone', sensitiveLimit, devAuth(getProfileByApiKey), async (req, res) => {
   const {
     streamId,
     contractorAddress,
@@ -714,7 +727,7 @@ app.get('/api/v1/u/:username', async (req, res) => {
 //   ratePerSecond: "1234"  (bigint as string)
 // }
 
-app.post('/api/v1/register-stream', verifyJwtOrApiKey(getProfileByApiKey), async (req, res) => {
+app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res) => {
   const {
     streamId,
     repo,                    // legacy field — kept for backwards compatibility

@@ -187,6 +187,7 @@ export function publicProfile(row) {
   } = row;
   return {
     ...pub,
+    has_api_key:          !!row.api_key,
     jira_connected:       !!row.jira_url && !!row.jira_email && !!row.jira_token,
     bitbucket_connected:  !!row.bitbucket_workspace && !!row.bitbucket_user && !!row.bitbucket_password,
     figma_connected:      !!row.figma_token,

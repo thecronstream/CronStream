@@ -13,6 +13,7 @@
 import { SiweMessage }   from 'siwe';
 import jwt               from 'jsonwebtoken';
 import crypto            from 'crypto';
+import { paymentMiddleware } from 'x402-express';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -158,5 +159,55 @@ export function verifyJwtOrApiKey(getProfileByApiKeyFn) {
     }
 
     return res.status(401).json({ error: 'Authorization required' });
+  };
+}
+
+/**
+ * verifyJwtOrApiKeyOrX402 — extends verifyJwtOrApiKey with x402 as a third path.
+ *
+ * Priority:
+ *   1. Bearer cs_live_* → API key auth
+ *   2. Bearer <jwt>     → SIWE JWT auth
+ *   3. X-PAYMENT header → x402 pay-per-call (no account needed)
+ *   4. Otherwise        → 401
+ *
+ * When x402 payment is accepted, req.callerAddress is set to 'x402' and
+ * req.authMethod is 'x402'. Downstream handlers should treat this as an
+ * anonymous but paid caller with no profile.
+ */
+export function verifyJwtOrApiKeyOrX402(getProfileByApiKeyFn, { payTo, network, price } = {}) {
+  const jwtOrKey = verifyJwtOrApiKey(getProfileByApiKeyFn);
+
+  // Build x402 middleware lazily so missing AGENT_PRIVATE_KEY in dev doesn't crash
+  const x402 = payTo
+    ? paymentMiddleware(payTo, {
+        'POST /api/v1/register-stream':  { price: price ?? '$0.05', network: network ?? 'base-sepolia', config: { description: 'Register a CronStream payment stream with the agent' } },
+        'POST /api/v1/verify-milestone': { price: price ?? '$0.10', network: network ?? 'base-sepolia', config: { description: 'Verify a work milestone and get a signed extension voucher' } },
+      })
+    : null;
+
+  return async (req, res, next) => {
+    const auth = (req.headers['authorization'] ?? '').trim();
+
+    // Has Bearer token → try JWT / API key
+    if (auth.startsWith('Bearer ')) {
+      return jwtOrKey(req, res, next);
+    }
+
+    // Has X-PAYMENT header → x402 path
+    if (req.headers['x-payment']) {
+      if (!x402) {
+        return res.status(402).json({ error: 'x402 payments not configured on this agent' });
+      }
+      return x402(req, res, () => {
+        req.callerAddress = 'x402';
+        req.authMethod    = 'x402';
+        next();
+      });
+    }
+
+    return res.status(401).json({
+      error: 'Authorization required — provide a JWT, API key, or x402 payment',
+    });
   };
 }

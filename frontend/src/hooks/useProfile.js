@@ -12,9 +12,14 @@ const CACHE_KEY = addr => `cronstream_profile_${addr?.toLowerCase()}`;
 // cache. Every concurrent caller waits on the same fetch; rapid re-mounts skip
 // the network entirely and read from the module cache.
 
-const _inFlight = new Map();  // address → Promise<serverProfile | null>
-const _memCache = new Map();  // address → { profile, ts }
-const MEM_TTL   = 30_000;     // 30 s — skip re-fetch if result is this fresh
+const _inFlight  = new Map();  // address → Promise<serverProfile | null>
+const _memCache  = new Map();  // address → { profile, ts }
+const _listeners = new Map();  // address → Set<(profile) => void>
+const MEM_TTL    = 30_000;     // 30 s — skip re-fetch if result is this fresh
+
+function notifyListeners(address, profile) {
+  _listeners.get(address?.toLowerCase())?.forEach(fn => fn(profile));
+}
 
 function fetchFromServer(address) {
   const key = address.toLowerCase();
@@ -75,6 +80,16 @@ export function useProfile(address) {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // Subscribe to cross-instance profile updates (e.g. Setup saves → AppShell nav refreshes)
+  useEffect(() => {
+    if (!address) return;
+    const key = address.toLowerCase();
+    if (!_listeners.has(key)) _listeners.set(key, new Set());
+    const handler = p => { if (mountedRef.current) setProfile(p); };
+    _listeners.get(key).add(handler);
+    return () => _listeners.get(key)?.delete(handler);
+  }, [address]);
 
   // ── Fetch from server (deduplicated) ────────────────────────────────────
   useEffect(() => {
@@ -151,8 +166,9 @@ export function useProfile(address) {
         };
         setProfile(enriched);
         localStorage.setItem(CACHE_KEY(address), JSON.stringify(enriched));
-        // Populate memory cache with the canonical server response
         _memCache.set(address.toLowerCase(), { profile: serverProfile, ts: Date.now() });
+        // Notify all other useProfile instances (e.g. AppShell) so nav updates immediately
+        notifyListeners(address, enriched);
       }
     } catch (err) {
       console.warn('[useProfile] Save to server failed (cache preserved):', err.message);
