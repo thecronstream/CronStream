@@ -35,7 +35,8 @@ export const DEFAULT_CURRENCY = 'USD';
 export const STABLECOIN_USD_PRICE = {
   // Arbitrum Sepolia USDC
   '0x75faf114eafb1bDbe2F0316DF893fd58CE46AA4d': 1.0,
-  // Add mainnet USDC, USDT, DAI etc. here
+  // CronStream testnet token — 1 CRM = $1
+  '0x2Ca6e6FbAA8D0Bc27a64Ca079aFa6bf5cc8C7ad1': 1.0,
 };
 
 /** Returns true if the token is a known stablecoin (~$1). */

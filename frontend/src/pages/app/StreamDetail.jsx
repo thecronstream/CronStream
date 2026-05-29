@@ -13,6 +13,7 @@ import WithdrawModal from '../../components/WithdrawModal';
 
 const TOKEN_LABELS = {
   '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d': 'USDC',
+  '0x2Ca6e6FbAA8D0Bc27a64Ca079aFa6bf5cc8C7ad1': 'CRM',
 };
 
 

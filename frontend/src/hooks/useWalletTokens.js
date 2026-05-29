@@ -15,6 +15,7 @@
 
 import { useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
+import { KNOWN_TEST_TOKENS } from '../lib/wagmi';
 
 // ─── Per-chain token registry ─────────────────────────────────────────────────
 // chainId → array of { symbol, address, decimals, logoUrl? }
@@ -26,6 +27,13 @@ export const CHAIN_TOKENS = {
       address:  '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
       decimals: 6,
       logoUrl:  'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg',
+    },
+    {
+      symbol:   'CRM',
+      name:     'CronStream Token',
+      address:  '0x2Ca6e6FbAA8D0Bc27a64Ca079aFa6bf5cc8C7ad1',
+      decimals: 6,
+      logoUrl:  null,
     },
     {
       symbol:   'WETH',
@@ -102,7 +110,11 @@ const ERC20_BALANCE_ABI = [
  * TokenWithBalance: { symbol, address, decimals, logoUrl, balance, balanceRaw, balanceFormatted }
  */
 export function useWalletTokens(walletAddress, chainId) {
-  const known = CHAIN_TOKENS[chainId] ?? [];
+  // Merge static registry with env-configured test tokens (e.g. CRM once deployed)
+  const known = [
+    ...(CHAIN_TOKENS[chainId] ?? []),
+    ...(KNOWN_TEST_TOKENS[chainId] ?? []),
+  ];
 
   // Batch balanceOf reads
   const contracts = walletAddress
@@ -146,11 +158,11 @@ export function useWalletTokens(walletAddress, chainId) {
     return { ...t, balanceRaw: raw, balance: formatted };
   });
 
-  // Show all tokens while loading; once loaded, show only those with real balance OR USDC
-  // (USDC always shown so user can stream even on a fresh wallet — approval will catch zero balance)
+  // Show all tokens while loading; once loaded, show only those with real balance, USDC, or CRM
+  // (USDC and CRM always shown so the faucet token is always accessible for testing)
   const visible = isLoading
     ? tokens
-    : tokens.filter(t => t.balanceRaw > 0n || t.symbol === 'USDC');
+    : tokens.filter(t => t.balanceRaw > 0n || t.symbol === 'USDC' || t.symbol === 'CRM');
 
   return { tokens: visible, allTokens: tokens, isLoading };
 }

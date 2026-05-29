@@ -27,6 +27,7 @@ import LiveBalance   from '../../components/LiveBalance';
 // ─── Token helpers ────────────────────────────────────────────────────────────
 const TOKEN_LABELS = {
   '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d': 'USDC',
+  '0x2Ca6e6FbAA8D0Bc27a64Ca079aFa6bf5cc8C7ad1': 'CRM',
   '0x0000000000000000000000000000000000000001': 'TSLA',
   '0x0000000000000000000000000000000000000002': 'AMZN',
 };

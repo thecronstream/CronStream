@@ -15,6 +15,20 @@ export const robinhoodTestnet = defineChain({
   testnet: true,
 });
 
+// Known test tokens per chain — added to the token picker alongside wallet-detected tokens.
+// CRM address is set via VITE_CRM_TOKEN_ADDRESS once deployed.
+export const KNOWN_TEST_TOKENS = {
+  421614: [
+    ...(import.meta.env.VITE_CRM_TOKEN_ADDRESS ? [{
+      address:  getAddress(import.meta.env.VITE_CRM_TOKEN_ADDRESS),
+      symbol:   'CRM',
+      name:     'CronStream Token',
+      decimals: 6,
+      logoUrl:  null,
+    }] : []),
+  ],
+};
+
 // Contract addresses per chain — read from env vars, normalised to EIP-55 checksum.
 // Set VITE_CONTRACT_ADDRESS_ARB_SEPOLIA and VITE_CONTRACT_ADDRESS_ROBINHOOD in .env
 export const CONTRACT_ADDRESSES = {

@@ -56,7 +56,6 @@ export function AuthProvider({ children }) {
   const tokenAddressRef = useRef(saved?.address ?? null);
 
   // Clear session when wallet disconnects or switches account.
-  // Guard against wagmi's brief isConnected=false on mount by checking address too.
   useEffect(() => {
     if (!isConnected && !address) {
       setToken(null);
@@ -74,6 +73,16 @@ export function AuthProvider({ children }) {
       clearSession();
     }
   }, [isConnected, address]);
+
+  // Auto-sign the moment a wallet connects with no active session.
+  // This pops the wallet immediately — no modal required.
+  const autoSignRef = useRef(false);
+  useEffect(() => {
+    if (!isConnected || !address || token) { autoSignRef.current = false; return; }
+    if (autoSignRef.current) return;
+    autoSignRef.current = true;
+    signIn();
+  }, [isConnected, address, token]);
 
   const signIn = useCallback(async () => {
     if (!address) return;
