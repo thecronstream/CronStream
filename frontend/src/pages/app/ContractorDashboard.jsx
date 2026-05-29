@@ -530,9 +530,11 @@ export default function ContractorDashboard() {
           <p className="text-[10px] text-muted font-mono mt-0.5">
             {received.length === 0
               ? 'no streams yet'
-              : activeStreams.length === 0
-                ? `${received.length} ended`
-                : `of ${received.length} streams`}
+              : activeStreams.length === 0 && pendingStreams.length > 0
+                ? `${pendingStreams.length} pending`
+                : activeStreams.length === 0
+                  ? `${received.length - pendingStreams.length} ended`
+                  : `of ${received.length} streams`}
           </p>
         </div>
 

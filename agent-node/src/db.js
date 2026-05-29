@@ -537,8 +537,7 @@ export async function getAllMonitoredStreams() {
   if (!db) return [];
   const result = await db.execute(
     `SELECT * FROM stream_registry
-     WHERE verification_target IS NOT NULL
-     AND sender IS NOT NULL
+     WHERE sender IS NOT NULL
      ORDER BY created_at DESC`,
   );
   return result.rows;

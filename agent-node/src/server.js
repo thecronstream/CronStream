@@ -161,7 +161,7 @@ app.post('/api/v1/auth/:provider/initiate', verifyJwt, (req, res) => {
   switch (provider) {
     case 'github':
       if (!process.env.GITHUB_CLIENT_ID) return res.status(503).json({ error: 'GitHub OAuth not configured on this server' });
-      redirectUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=${encodeURIComponent('repo read:org')}&state=${state}&redirect_uri=${encodeURIComponent(cb)}`;
+      redirectUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=${encodeURIComponent('repo read:org admin:repo_hook')}&state=${state}&redirect_uri=${encodeURIComponent(cb)}`;
       break;
     case 'atlassian':
       if (!process.env.ATLASSIAN_CLIENT_ID) return res.status(503).json({ error: 'Atlassian OAuth not configured on this server' });
@@ -284,6 +284,56 @@ app.delete('/api/v1/auth/:provider', verifyJwt, async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+// ─── GitHub webhook auto-setup ───────────────────────────────────────────────
+
+async function ensureGitHubWebhook(repo, token) {
+  const webhookUrl = `${AGENT_EXT_URL}/api/v1/webhook/github`;
+  const secret     = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!token || !secret) return;
+
+  const headers = {
+    Authorization:          `Bearer ${token}`,
+    Accept:                 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type':         'application/json',
+  };
+
+  try {
+    // Check if our webhook already exists to avoid duplicates
+    const listRes = await fetch(`https://api.github.com/repos/${repo}/hooks`, { headers, signal: AbortSignal.timeout(6000) });
+    if (listRes.ok) {
+      const hooks = await listRes.json();
+      const exists = Array.isArray(hooks) && hooks.some(h => h.config?.url === webhookUrl);
+      if (exists) {
+        console.log(`[webhook-setup] Webhook already exists for ${repo}`);
+        return;
+      }
+    }
+
+    // Create the webhook
+    const createRes = await fetch(`https://api.github.com/repos/${repo}/hooks`, {
+      method:  'POST',
+      headers,
+      signal:  AbortSignal.timeout(6000),
+      body: JSON.stringify({
+        name:   'web',
+        active: true,
+        events: ['push', 'pull_request', 'workflow_run'],
+        config: { url: webhookUrl, content_type: 'json', secret, insecure_ssl: '0' },
+      }),
+    });
+
+    if (createRes.ok) {
+      console.log(`[webhook-setup] ✓ Webhook created for ${repo}`);
+    } else {
+      const err = await createRes.text();
+      console.warn(`[webhook-setup] Could not create webhook for ${repo}: ${createRes.status} ${err.slice(0, 200)}`);
+    }
+  } catch (err) {
+    console.warn(`[webhook-setup] Error setting up webhook for ${repo}: ${err.message}`);
+  }
+}
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 
@@ -976,6 +1026,17 @@ app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res
       `[register-stream] ✓ Registered stream=${streamId} ` +
       `source=${verificationSource ?? 'github'} target=${resolvedTarget}`,
     );
+
+    // Auto-create GitHub webhook if source is github and company has OAuth token
+    if ((verificationSource === 'github' || !verificationSource) && resolvedTarget && req.callerAddress) {
+      try {
+        const companyProfile = await getProfile(req.callerAddress);
+        if (companyProfile?.github_oauth_token) {
+          ensureGitHubWebhook(resolvedTarget, companyProfile.github_oauth_token);
+        }
+      } catch { /* non-fatal */ }
+    }
+
     return res.json({
       success: true, streamId,
       verificationSource: verificationSource ?? 'github',

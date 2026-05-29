@@ -12,6 +12,7 @@ const TOKEN_LABELS = {
   '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d': 'USDC',
 };
 
+
 const BLOCKSCOUT_ADDR = {
   421614: addr => `https://arbitrum-sepolia.blockscout.com/address/${addr}`,
 };

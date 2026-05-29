@@ -33,15 +33,24 @@ function tokenMeta(chainId, tokenAddress) {
 }
 
 // ─── Stream status ─────────────────────────────────────────────────────────────
+function isPendingStream(stream) {
+  const until = Number(stream.streamValidUntil ?? 0);
+  const start = Number(stream.startTime ?? 0);
+  const deposited = stream.totalDeposited ?? 0n;
+  return deposited > 0n && (until === 0 || until <= start);
+}
+
 function getStatus(stream) {
   const nowSec = Math.floor(Date.now() / 1000);
   if (stream.streamValidUntil && Number(stream.streamValidUntil) > nowSec) return 'active';
+  if (isPendingStream(stream)) return 'pending';
   if ((stream.totalWithdrawn ?? 0n) > 0n) return 'claimed';
   return 'expired';
 }
 
 function isSettled(stream) {
   const nowSec = Math.floor(Date.now() / 1000);
+  if (isPendingStream(stream)) return false;
   return (
     (!stream.streamValidUntil || Number(stream.streamValidUntil) <= nowSec) &&
     (stream.rawBalance ?? 0n) === 0n
@@ -50,11 +59,12 @@ function isSettled(stream) {
 
 const STATUS_STYLES = {
   active:  'badge-active',
+  pending: 'inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-yellow-500/30 text-yellow-400/80 bg-yellow-500/5',
   claimed: 'inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-border text-muted',
   expired: 'inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border border-border/40 text-muted/50',
 };
-const STATUS_LABEL = { active: 'Active', claimed: 'Claimed', expired: 'Ended' };
-const STATUS_ORDER = { active: 0, claimed: 1, expired: 2 };
+const STATUS_LABEL = { active: 'Active', pending: 'Pending', claimed: 'Claimed', expired: 'Ended' };
+const STATUS_ORDER = { active: 0, pending: 1, claimed: 2, expired: 3 };
 
 // ─── Stream detail modal ──────────────────────────────────────────────────────
 function StreamDetailModal({ stream, chainId, onClose }) {

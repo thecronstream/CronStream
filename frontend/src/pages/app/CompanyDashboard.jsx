@@ -228,10 +228,26 @@ export default function CompanyDashboard() {
     enriched.filter(e => e.streamValidUntil && Number(e.streamValidUntil) > nowSec),
   [enriched]);
 
-  // Completed from company's perspective = all expired streams.
-  // Whether the contractor has withdrawn their earned funds is their own responsibility.
+  const pendingStreams = useMemo(() =>
+    enriched.filter(e => {
+      if (e.streamValidUntil && Number(e.streamValidUntil) > nowSec) return false;
+      const deposited = e.totalDeposited ?? 0n;
+      const until     = Number(e.streamValidUntil ?? 0);
+      const start     = Number(e.startTime ?? 0);
+      return deposited > 0n && (until === 0 || until <= start);
+    }),
+  [enriched]);
+
+  // Completed = expired AND not pending (pending have deposit locked but period never opened)
   const completedStreams = useMemo(() =>
-    enriched.filter(e => !e.streamValidUntil || Number(e.streamValidUntil) <= nowSec),
+    enriched.filter(e => {
+      if (e.streamValidUntil && Number(e.streamValidUntil) > nowSec) return false;
+      const deposited = e.totalDeposited ?? 0n;
+      const until     = Number(e.streamValidUntil ?? 0);
+      const start     = Number(e.startTime ?? 0);
+      const isPending = deposited > 0n && (until === 0 || until <= start);
+      return !isPending;
+    }),
   [enriched]);
 
   // "Reclaimable" = expired streams where the company has genuinely unearned funds
@@ -326,9 +342,11 @@ export default function CompanyDashboard() {
           <p className="text-[10px] text-muted font-mono mt-0.5">
             {sent.length === 0
               ? 'no streams yet'
-              : activeStreams.length === 0
-                ? `${completedStreams.length} expired`
-                : `of ${sent.length} streams`}
+              : activeStreams.length === 0 && pendingStreams.length > 0
+                ? `${pendingStreams.length} pending`
+                : activeStreams.length === 0 && completedStreams.length > 0
+                  ? `${completedStreams.length} ended`
+                  : `of ${sent.length} streams`}
           </p>
         </div>
         <div className="stat-card">
@@ -353,10 +371,10 @@ export default function CompanyDashboard() {
           <div>
             <p className="text-[10px] font-mono text-muted uppercase tracking-widest">Stream history</p>
             <p className="text-xs text-white/70 mt-0.5">
-              {sent.length} streams · {completedStreams.length} ended
-              {reclaimableStreams.length > 0 && (
-                <span className="ml-2 text-yellow-400 font-mono">· {reclaimableStreams.length} to reclaim</span>
-              )}
+              {sent.length} stream{sent.length !== 1 ? 's' : ''}
+              {completedStreams.length > 0 && ` · ${completedStreams.length} ended`}
+              {pendingStreams.length > 0 && <span className="ml-1 text-yellow-400/80 font-mono"> · {pendingStreams.length} pending</span>}
+              {reclaimableStreams.length > 0 && <span className="ml-1 text-yellow-400 font-mono"> · {reclaimableStreams.length} to reclaim</span>}
             </p>
           </div>
         </div>
