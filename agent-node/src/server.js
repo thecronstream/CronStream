@@ -848,7 +848,12 @@ app.get('/api/v1/u/:username', async (req, res) => {
 //   ratePerSecond: "1234"  (bigint as string)
 // }
 
-app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res) => {
+// register-stream accepts JWT, API key, x402, OR no auth at all.
+// The stream already exists on-chain — the on-chain sender is the source of truth for
+// ownership. Requiring a JWT here creates a race: the on-chain listener may auto-register
+// before the frontend's JWT-authenticated call arrives, and a cold session may not have
+// a valid JWT yet right after wallet connect. We verify sender identity via the contract.
+app.post('/api/v1/register-stream', async (req, res) => {
   const {
     streamId,
     repo,                    // legacy field — kept for backwards compatibility
