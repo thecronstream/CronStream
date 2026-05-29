@@ -208,7 +208,7 @@ export default function StreamDetail() {
   const isPending    = !isActive && (totalDeposited ?? 0n) > 0n && (streamValidUntil === 0n || streamValidUntil <= startTime);
   const duration     = streamValidUntil > startTime ? streamValidUntil - startTime : 0n;
   const elapsed      = isActive ? now - startTime : duration;
-  const progressPct  = duration > 0n ? Math.min(Number((elapsed * 100n) / duration), 100) : 100;
+  const progressPct  = isPending ? 0 : duration > 0n ? Math.min(Number((elapsed * 100n) / duration), 100) : 100;
   const tokenLabel   = TOKEN_LABELS[token] ?? short(token);
   const ratePerDay   = parseFloat(formatUnits(ratePerSecond ?? 0n, 6)) * 86400;
 
@@ -277,8 +277,8 @@ export default function StreamDetail() {
     { label: 'Per second',      value: `${formatUnits(ratePerSecond ?? 0n, 6)} ${tokenLabel}`, mono: true },
     { label: 'Total deposited', value: `${parseFloat(formatUnits(totalDeposited ?? 0n, 6)).toFixed(4)} ${tokenLabel}`, mono: true },
     { label: 'Total withdrawn', value: `${parseFloat(formatUnits(totalWithdrawn ?? 0n, 6)).toFixed(4)} ${tokenLabel}`, mono: true },
-    { label: 'Start',           value: startTime > 0n ? new Date(Number(startTime) * 1000).toLocaleString() : '—' },
-    { label: 'Expires',         value: streamValidUntil > 0n ? new Date(Number(streamValidUntil) * 1000).toLocaleString() : '—' },
+    { label: 'Created',          value: startTime > 0n ? new Date(Number(startTime) * 1000).toLocaleString() : '-' },
+    { label: 'Expires',         value: isPending ? 'No active period yet' : streamValidUntil > 0n ? new Date(Number(streamValidUntil) * 1000).toLocaleString() : '-' },
     { label: 'Chain',           value: chainName, mono: true },
   ];
 
@@ -452,8 +452,12 @@ export default function StreamDetail() {
                   }}
                 />
               </div>
-              {/* Fix 1: show time too when start/end fall on the same calendar day */}
-              {(() => {
+              {/* Timestamps — pending shows only created date, active/ended shows start + end */}
+              {isPending ? (
+                <div className="text-xs text-muted/50 mt-2 font-mono">
+                  Created {startTime > 0n ? new Date(Number(startTime) * 1000).toLocaleString() : '-'}
+                </div>
+              ) : (() => {
                 const startDate = startTime > 0n ? new Date(Number(startTime) * 1000) : null;
                 const endDate   = streamValidUntil > 0n ? new Date(Number(streamValidUntil) * 1000) : null;
                 const sameDay   = startDate && endDate &&
@@ -463,12 +467,12 @@ export default function StreamDetail() {
                   : { month: 'numeric', day: 'numeric', year: 'numeric' };
                 return (
                   <div className="flex justify-between text-xs text-muted/50 mt-2 font-mono">
-                    <span>{startDate ? startDate.toLocaleString(undefined, fmtOpts) : '—'}</span>
-                    <span>{endDate   ? endDate.toLocaleString(undefined, fmtOpts)   : '—'}</span>
+                    <span>{startDate ? startDate.toLocaleString(undefined, fmtOpts) : '-'}</span>
+                    <span>{endDate   ? endDate.toLocaleString(undefined, fmtOpts)   : '-'}</span>
                   </div>
                 );
               })()}
-              {/* Fix 5: rate + duration on one line each, no orphan label below */}
+
               <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-border">
                 <div>
                   <p className="text-[10px] text-muted uppercase tracking-widest mb-1">Rate</p>
@@ -478,31 +482,37 @@ export default function StreamDetail() {
                 </div>
                 <div>
                   <p className="text-[10px] text-muted uppercase tracking-widest mb-1">
-                    {isActive ? 'Time left' : 'Duration'}
+                    {isPending ? 'Status' : isActive ? 'Time left' : 'Duration'}
                   </p>
-                  <p className="text-sm font-mono font-semibold tabular-nums">
-                    {isActive
-                      ? (() => {
-                          const secs = Number(streamValidUntil - now);
-                          const d = Math.floor(secs / 86400);
-                          const h = Math.floor((secs % 86400) / 3600);
-                          const m = Math.floor((secs % 3600) / 60);
-                          if (d > 0) return `${d}d ${h}h`;
-                          if (h > 0) return `${h}h ${m}m`;
-                          return `${m}m`;
-                        })()
-                      : (() => {
-                          const secs = Number(duration);
-                          const d = Math.floor(secs / 86400);
-                          const h = Math.floor(secs / 3600);
-                          const m = Math.floor((secs % 3600) / 60);
-                          if (d > 0) return `${d}d`;
-                          if (h > 0) return `${h}h ${m > 0 ? m + 'm' : ''}`.trim();
-                          return `${m}m`;
-                        })()
-                    }
-                    {' '}<span className="text-[11px] font-normal text-muted">{isActive ? 'remaining' : 'total'}</span>
-                  </p>
+                  {isPending ? (
+                    <p className="text-sm font-mono font-semibold text-yellow-400/80">Waiting for work</p>
+                  ) : isActive ? (
+                    <p className="text-sm font-mono font-semibold tabular-nums">
+                      {(() => {
+                        const secs = Number(streamValidUntil - now);
+                        const d = Math.floor(secs / 86400);
+                        const h = Math.floor((secs % 86400) / 3600);
+                        const m = Math.floor((secs % 3600) / 60);
+                        if (d > 0) return `${d}d ${h}h`;
+                        if (h > 0) return `${h}h ${m}m`;
+                        return `${m}m`;
+                      })()}
+                      {' '}<span className="text-[11px] font-normal text-muted">remaining</span>
+                    </p>
+                  ) : (
+                    <p className="text-sm font-mono font-semibold tabular-nums">
+                      {(() => {
+                        const secs = Number(duration);
+                        const d = Math.floor(secs / 86400);
+                        const h = Math.floor(secs / 3600);
+                        const m = Math.floor((secs % 3600) / 60);
+                        if (d > 0) return `${d}d`;
+                        if (h > 0) return `${h}h ${m > 0 ? m + 'm' : ''}`.trim();
+                        return `${m}m`;
+                      })()}
+                      {' '}<span className="text-[11px] font-normal text-muted">total</span>
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
