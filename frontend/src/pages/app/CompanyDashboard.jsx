@@ -213,6 +213,7 @@ export default function CompanyDashboard() {
         rawBalance: balData?.[i] ?? s.rawBalance ?? 0n,
         ...(state && {
           streamValidUntil: state.streamValidUntil ?? s.streamValidUntil ?? 0n,
+          startTime:        state.startTime        ?? s.startTime        ?? 0n,
           totalDeposited:   state.totalDeposited   ?? s.totalDeposited   ?? 0n,
           totalWithdrawn:   state.totalWithdrawn   ?? s.totalWithdrawn   ?? 0n,
           ratePerSecond:    state.ratePerSecond     ?? s.ratePerSecond    ?? 0n,
@@ -251,11 +252,12 @@ export default function CompanyDashboard() {
   // totalDeposited is available (i.e. stream was fetched from the agent DB or chain).
   const reclaimableStreams = useMemo(() =>
     enriched.filter(e => {
-      const expired   = !e.streamValidUntil || Number(e.streamValidUntil) <= nowSec;
+      const expired = !e.streamValidUntil || Number(e.streamValidUntil) <= nowSec;
       if (!expired) return false;
-      const deposited = e.totalDeposited  ?? 0n;
+      if (isEnrichedPending(e)) return false;
+      const deposited = e.totalDeposited ?? 0n;
       if (deposited === 0n) return false;
-      const earned   = (e.rawBalance ?? 0n) + (e.totalWithdrawn ?? 0n);
+      const earned = (e.rawBalance ?? 0n) + (e.totalWithdrawn ?? 0n);
       return deposited > earned;
     }),
   [enriched]);
