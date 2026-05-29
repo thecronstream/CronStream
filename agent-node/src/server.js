@@ -296,7 +296,9 @@ app.delete('/api/v1/auth/:provider', verifyJwt, async (req, res) => {
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 
 function getExtensionDuration(clientValue) {
-  return clientValue ?? Number(process.env.DEFAULT_EXTENSION_SECONDS ?? 86400);
+  // Last-resort guard only — the manual verify-milestone endpoint passes an
+  // explicit duration, and the poller uses each stream's stored period_seconds.
+  return clientValue ?? 604800;
 }
 
 function getVoucherExpiry() {
@@ -853,15 +855,34 @@ app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res
     extensionDurationSeconds, // = the period length (1 week, 2 weeks, etc.)
   } = req.body;
 
+  console.log(`[register-stream] ← POST stream=${(streamId ?? '?').slice(0, 12)}… target=${verificationTarget ?? repo ?? 'none'} period=${extensionDurationSeconds ?? 'none'}`);
+
   // Accept either new-style verificationTarget or legacy repo field
   const resolvedTarget = verificationTarget ?? repo ?? null;
 
-  if (!streamId || !resolvedTarget) {
-    return res.status(400).json({ error: 'streamId and verificationTarget (or repo) are required' });
+  // ── Every field is mandatory — a stream the agent can't fully verify is
+  //    useless, and missing fields are what broke the first stream we shipped. ──
+  const missing = [];
+  if (!streamId)                 missing.push('streamId');
+  if (!resolvedTarget)           missing.push('verificationTarget');
+  if (!recipient)                missing.push('recipient');
+  if (!ratePerSecond)            missing.push('ratePerSecond');
+  if (!token)                    missing.push('token');
+  if (!bodyChainId)              missing.push('chainId');
+  if (!extensionDurationSeconds) missing.push('extensionDurationSeconds');
+  if (missing.length) {
+    console.warn(`[register-stream] ✗ Rejected — missing: ${missing.join(', ')}`);
+    return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
   }
 
   if (!/^0x[a-fA-F0-9]{64}$/.test(streamId)) {
     return res.status(400).json({ error: 'Invalid streamId format' });
+  }
+  if (!/^0x[a-fA-F0-9]{40}$/.test(recipient)) {
+    return res.status(400).json({ error: 'Invalid recipient address' });
+  }
+  if (!/^0x[a-fA-F0-9]{40}$/.test(token)) {
+    return res.status(400).json({ error: 'Invalid token address' });
   }
 
   try {

@@ -197,6 +197,9 @@ export default function CreateStreamModal() {
   const [step,            setStep]            = useState(0);
   const [createdStreamId, setCreatedStreamId] = useState(null);
   const [selectedContractor, setSelectedContractor] = useState(null);
+  const [regStatus,       setRegStatus]       = useState(null);   // 'ok' | 'failed'
+  const [regArgs,         setRegArgs]         = useState(null);   // cached payload for retry
+  const [regBusy,         setRegBusy]         = useState(false);
 
   const VERIFICATION_SOURCES = [
     { key: 'github',    label: 'GitHub',    placeholder: 'owner/repo',                         hint: 'Merged PRs + passing CI' },
@@ -211,7 +214,7 @@ export default function CreateStreamModal() {
     token:              DEFAULT_TOKEN,
     milestoneAmount:    '',          // value paid per milestone (e.g. 150 USDC)
     milestoneCount:     '3',         // number of milestones in the contract
-    milestoneWindow:    '604800',     // seconds per window - default 24h
+    milestoneWindow:    '604800',     // seconds per window - default 1 week
     verificationSource: 'github',
     verificationTarget: '',
   });
@@ -241,7 +244,7 @@ export default function CreateStreamModal() {
 
   // ── Derived numbers ──────────────────────────────────────────────────────────
   // Milestone window in seconds (BigInt)
-  const windowSeconds   = BigInt(form.milestoneWindow || '86400');
+  const windowSeconds   = BigInt(form.milestoneWindow || '604800');
   const milestoneCountInt = Math.max(1, parseInt(form.milestoneCount || '1', 10));
   const milestoneCount    = BigInt(milestoneCountInt);
 
@@ -306,31 +309,55 @@ export default function CreateStreamModal() {
       try {
         const event = parseAbiItem('event StreamCreated(bytes32 indexed streamId, address indexed sender, address indexed recipient, uint256 ratePerSecond)');
         const log = createReceipt.logs.find(l => l.address.toLowerCase() === getContractAddress(chainId).toLowerCase());
-        if (log) {
-          const decoded = publicClient.decodeEventLog({ abi: [event], data: log.data, topics: log.topics });
-          setCreatedStreamId(decoded.streamId);
-          await registerStreamWithAgent({
-            streamId:                decoded.streamId,
-            repo:                    form.verificationSource === 'github' ? form.verificationTarget : null,
-            verificationSource:      form.verificationSource,
-            verificationTarget:      form.verificationTarget || null,
-            recipient:               recipientAddr,
-            ratePerSecond:           ratePerSecond.toString(),
-            token:                   form.token,
-            extensionDurationSeconds: Number(windowSeconds),
-            chainId,
-            authFetch,
-          });
-        }
-      } catch (e) { console.warn('Post-create (non-fatal):', e); }
+        if (!log) { setRegStatus('failed'); return; }
+
+        const decoded = publicClient.decodeEventLog({ abi: [event], data: log.data, topics: log.topics });
+        setCreatedStreamId(decoded.streamId);
+
+        // The stream now exists on-chain. Registering it with the agent is what
+        // makes it monitored — if this fails the stream is orphaned, so we track
+        // the result and offer a retry instead of silently swallowing it.
+        const args = {
+          streamId:                decoded.streamId,
+          repo:                    form.verificationSource === 'github' ? form.verificationTarget : null,
+          verificationSource:      form.verificationSource,
+          verificationTarget:      form.verificationTarget,
+          recipient:               recipientAddr,
+          ratePerSecond:           ratePerSecond.toString(),
+          token:                   form.token,
+          extensionDurationSeconds: Number(windowSeconds),
+          chainId,
+          authFetch,
+        };
+        setRegArgs(args);
+        const result = await registerStreamWithAgent(args);
+        setRegStatus(result?.success ? 'ok' : 'failed');
+      } catch (e) {
+        console.warn('Post-create registration error:', e);
+        setRegStatus('failed');
+      }
     }
     finish();
     setStep(3);
   }, [createSuccess]);
 
+  async function retryRegister() {
+    if (!regArgs) return;
+    setRegBusy(true);
+    const result = await registerStreamWithAgent({ ...regArgs, authFetch });
+    setRegBusy(false);
+    setRegStatus(result?.success ? 'ok' : 'failed');
+  }
+
   if (!open) return null;
 
   const canConfigure = recipientAddr && form.milestoneAmount && ratePerSecond > 0n && milestoneCount >= 1n && !!form.verificationTarget;
+
+  // Every field the agent needs to register the stream MUST be present before we
+  // ever create it on-chain — otherwise we'd mint a stream the agent can't monitor.
+  // This mirrors the server's required-field check, enforced one step earlier.
+  const canCreate = !!recipientAddr && !!form.token && !!chainId
+    && ratePerSecond > 0n && windowSeconds > 0n && !!form.verificationTarget;
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
@@ -577,7 +604,7 @@ export default function CreateStreamModal() {
               )}
               <button
                 onClick={() => doCreate({ address: getContractAddress(chainId), abi: ROUTER_ABI, functionName: 'createStream', args: [recipientAddr, form.token, ratePerSecond, 0n, totalCostRaw] })}
-                disabled={createPending || (!!createTxHash && !createReceiptError && !createError) || ratePerSecond === 0n}
+                disabled={createPending || (!!createTxHash && !createReceiptError && !createError) || !canCreate}
                 className="btn-primary w-full disabled:opacity-40">
                 {createPending ? 'Confirm in wallet…' : (createTxHash && !createReceiptError && !createError) ? 'Creating stream…' : 'Deposit & create stream'}
               </button>
@@ -597,9 +624,23 @@ export default function CreateStreamModal() {
                   {form.milestoneCount} × {WINDOW_OPTIONS.find(w => w.seconds.toString() === form.milestoneWindow)?.label}
                 </p>
               </div>
-              {form.verificationTarget && (
+              {form.verificationTarget && regStatus === 'ok' && (
                 <div className="text-xs text-accent font-mono bg-accent/5 border border-accent/20 rounded-xl px-4 py-2 w-full">
                   Agent watching {VERIFICATION_SOURCES.find(s=>s.key===form.verificationSource)?.label} · {form.verificationTarget}
+                </div>
+              )}
+              {regStatus === 'failed' && (
+                <div className="text-xs font-mono bg-yellow-500/5 border border-yellow-500/30 rounded-xl px-4 py-3 w-full flex flex-col gap-2">
+                  <span className="text-yellow-400">
+                    Stream created on-chain, but the agent didn't register it. It won't be monitored until you retry.
+                  </span>
+                  <button
+                    onClick={retryRegister}
+                    disabled={regBusy}
+                    className="btn-outline py-1.5 text-xs self-start disabled:opacity-50"
+                  >
+                    {regBusy ? 'Retrying…' : 'Retry registration'}
+                  </button>
                 </div>
               )}
               {createTxHash && (

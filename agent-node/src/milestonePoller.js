@@ -312,7 +312,9 @@ async function checkStream(dbRow) {
   const nonce            = Number(onChain.nonce ?? 0n);
 
   // Period length — falls back to the agent default if not stored on the stream
-  const period = Number(periodSeconds ?? process.env.DEFAULT_EXTENSION_SECONDS ?? 604800);
+  // Every stream stores its own period_seconds at registration. The 1-week
+  // constant is only a last-resort guard for legacy rows missing the field.
+  const period = Number(periodSeconds ?? 604800);
 
   const isPending  = streamValidUntil <= startTime && totalDeposited > 0n;
   const isExpiring = !isPending && streamValidUntil > now && (streamValidUntil - now) <= WARN_WINDOW_S;
