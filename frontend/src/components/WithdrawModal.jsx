@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useChainId } from 'wagmi';
+import { useWalletClient, useWaitForTransactionReceipt, useReadContract, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { Loader2 } from 'lucide-react';
 import { getContractAddress, ROUTER_ABI } from '../lib/wagmi';
@@ -58,17 +58,15 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
   const resolvedBalance = onChainBalance !== undefined ? onChainBalance : (rawBalance ?? 0n);
   const maxAmount = resolvedBalance > 0n ? parseFloat(formatUnits(resolvedBalance, 6)) : 0;
 
-  const [amount,  setAmount]  = useState('');
-  const [fmtErr,  setFmtErr]  = useState('');
+  const [amount,    setAmount]    = useState('');
+  const [fmtErr,    setFmtErr]    = useState('');
+  const [txHash,    setTxHash]    = useState(undefined);
+  const [isPending, setIsPending] = useState(false);
+  const [writeErr,  setWriteErr]  = useState(null);
 
-  const {
-    writeContract,
-    data:      txHash,
-    isPending,
-    isError:   writeIsError,
-    error:     writeError,
-    reset:     writeReset,
-  } = useWriteContract();
+  // useWalletClient bypasses wagmi's connector.getChainId() validation path
+  // that breaks with certain connectors (WalletConnect, injected in some states).
+  const { data: walletClient } = useWalletClient();
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -82,37 +80,46 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
   function handleMax() {
     setAmount(maxAmount.toFixed(6));
     setFmtErr('');
-    writeReset();
+    setWriteErr(null);
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     const val = parseFloat(amount);
     if (!amount || !val || val <= 0) return setFmtErr('Enter an amount');
     if (val > maxAmount + 0.000001)  return setFmtErr(`Max available: ${maxAmount.toFixed(4)}`);
+    if (!walletClient) return setFmtErr('Wallet not connected');
     setFmtErr('');
-    writeReset();
+    setWriteErr(null);
+    setTxHash(undefined);
 
     // When the user is withdrawing the full available amount, pass the raw BigInt
     // directly instead of converting float → string → parseUnits.
     // This prevents off-by-one failures caused by integer division truncation in
     // ratePerSecond (e.g. 30 USDC / 86400s = 347 wei/s → earned = 29.9808 USDC,
     // not 30.0000 - submitting parseUnits("30.000000") would revert).
-    const isMax      = val >= maxAmount - 0.000001;
+    const isMax       = val >= maxAmount - 0.000001;
     const withdrawRaw = isMax ? resolvedBalance : parseUnits(amount, 6);
 
-    writeContract({
-      address:      getContractAddress(chainId),
-      abi:          ROUTER_ABI,
-      functionName: 'withdrawFromStream',
-      args:         [streamId, withdrawRaw],
-      // ⚠️ do NOT pass chainId - triggers MetaMask "Switch Network" instead of "Sign tx"
-    });
+    setIsPending(true);
+    try {
+      const hash = await walletClient.writeContract({
+        address:      getContractAddress(chainId),
+        abi:          ROUTER_ABI,
+        functionName: 'withdrawFromStream',
+        args:         [streamId, withdrawRaw],
+      });
+      setTxHash(hash);
+    } catch (err) {
+      setWriteErr(err);
+    } finally {
+      setIsPending(false);
+    }
   }
 
   const isActive  = BigInt(Math.floor(Date.now() / 1000)) < (streamValidUntil ?? 0n);
   const shortId   = `${streamId?.slice(0, 8)}…${streamId?.slice(-6)}`;
-  const txErrMsg  = parseWriteError(writeError);
+  const txErrMsg  = parseWriteError(writeErr);
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -173,7 +180,7 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
                   <input
                     type="number"
                     value={amount}
-                    onChange={e => { setAmount(e.target.value); setFmtErr(''); writeReset(); }}
+                    onChange={e => { setAmount(e.target.value); setFmtErr(''); setWriteErr(null); }}
                     placeholder="0.00"
                     min="0"
                     step="any"
@@ -192,7 +199,7 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
               </div>
 
               {/* Tx error */}
-              {writeIsError && txErrMsg && (
+              {writeErr && txErrMsg && (
                 <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
                   <p className="text-red-400 text-xs font-mono">{txErrMsg}</p>
                 </div>
