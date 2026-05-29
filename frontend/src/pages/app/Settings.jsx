@@ -96,7 +96,12 @@ function IntegrationsSection({ profile, refreshProfile }) {
 
   const disconnect = useCallback(async (provider) => {
     try {
-      await authFetch(`${AGENT_URL}/api/v1/auth/${provider}`, { method: 'DELETE' });
+      const res = await authFetch(`${AGENT_URL}/api/v1/auth/${provider}`, { method: 'DELETE' });
+      if (res.status === 401) {
+        setToast({ provider, status: 'error', message: 'Session expired - sign in with your wallet again' });
+        setTimeout(() => setToast(null), 5000);
+        return;
+      }
       setToast({ provider, status: 'disconnected' });
       setTimeout(() => setToast(null), 3000);
       refreshProfile();
