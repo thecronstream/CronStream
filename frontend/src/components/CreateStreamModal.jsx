@@ -17,7 +17,7 @@ const ERC20_ABI = parseAbi([
   'function allowance(address owner, address spender) external view returns (uint256)',
 ]);
 
-// Milestone window options — how long each validation window lasts before the stream
+// Milestone window options - how long each validation window lasts before the stream
 // freezes if the agent hasn't verified a deliverable.
 const WINDOW_OPTIONS = [
   { label: '24 hours', seconds: 86400n },
@@ -69,7 +69,7 @@ function ContractorPicker({ selected, onSelect }) {
         setResults(rows);
         setOpen(rows.length > 0);
       }
-    } catch { /* agent offline — manual fallback available */ }
+    } catch { /* agent offline - manual fallback available */ }
     finally { setSearching(false); }
   }
 
@@ -212,7 +212,7 @@ export default function CreateStreamModal() {
     token:              DEFAULT_TOKEN,
     milestoneAmount:    '',          // value paid per milestone (e.g. 150 USDC)
     milestoneCount:     '3',         // number of milestones in the contract
-    milestoneWindow:    '86400',     // seconds per window — default 24h
+    milestoneWindow:    '86400',     // seconds per window - default 24h
     verificationSource: 'github',
     verificationTarget: '',
   });
@@ -246,14 +246,14 @@ export default function CreateStreamModal() {
   const milestoneCountInt = Math.max(1, parseInt(form.milestoneCount || '1', 10));
   const milestoneCount    = BigInt(milestoneCountInt);
 
-  // Total deposit is exactly milestoneAmount × periods — no ceiling rounding
+  // Total deposit is exactly milestoneAmount × periods - no ceiling rounding
   const milestoneRaw  = form.milestoneAmount ? parseUnits(form.milestoneAmount, decimals) : 0n;
   const totalCostRaw  = milestoneRaw * milestoneCount;
 
   // Full contract duration = window × number of milestones
   const durationSeconds = windowSeconds * milestoneCount;
 
-  // ratePerSecond = floor(totalDeposit / totalDuration) — streams the exact deposit over the full period
+  // ratePerSecond = floor(totalDeposit / totalDuration) - streams the exact deposit over the full period
   const ratePerSecond = totalCostRaw > 0n && durationSeconds > 0n
     ? totalCostRaw / durationSeconds
     : 0n;
@@ -262,7 +262,7 @@ export default function CreateStreamModal() {
   const totalCostDisplay = totalCostRaw > 0n
     ? totalCostFloat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : null;
-  // Show the amount the user typed as per-period — ceiling rounding is absorbed into the total deposit
+  // Show the amount the user typed as per-period - ceiling rounding is absorbed into the total deposit
   const perMilestoneDisplay = form.milestoneAmount
     ? parseFloat(form.milestoneAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
     : null;
@@ -414,7 +414,7 @@ export default function CreateStreamModal() {
               {/* Payment per period */}
               <div>
                 <label className="label">
-                  Payment per period <span className="text-muted/50 normal-case tracking-normal font-normal">— wages, milestone, sprint — whatever the work unit is</span>
+                  Payment per period <span className="text-muted/50 normal-case tracking-normal font-normal">— wages, milestone, sprint - whatever the work unit is</span>
                 </label>
                 <div className="relative">
                   <input
@@ -464,7 +464,7 @@ export default function CreateStreamModal() {
                   ))}
                 </div>
                 <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
-                  Funds stream continuously from the moment the contract starts. The agent extends each period — if it doesn't, the stream expires and unearned funds return to you.
+                  Funds stream continuously from the moment the contract starts. The agent extends each period - if it doesn't, the stream expires and unearned funds return to you.
                 </p>
               </div>
 
@@ -517,7 +517,7 @@ export default function CreateStreamModal() {
           {step === 1 && (
             <div className="flex flex-col gap-4">
               <div className="bg-dark border border-border rounded-xl p-4 text-sm text-muted leading-relaxed">
-                Approve the contract to hold <span className="text-white font-mono">{totalCostDisplay} {selectedToken.symbol}</span>. The stream starts locked — the contractor earns nothing until the agent verifies each period and extends it. If a period isn't verified, the stream stops and the unearned balance returns to you.
+                Approve the contract to hold <span className="text-white font-mono">{totalCostDisplay} {selectedToken.symbol}</span>. The stream starts locked - the contractor earns nothing until the agent verifies each period and extends it. If a period isn't verified, the stream stops and the unearned balance returns to you.
               </div>
               <div className="flex flex-col divide-y divide-border border border-border rounded-xl overflow-hidden text-xs font-mono">
                 <div className="flex justify-between px-4 py-3">
@@ -575,7 +575,7 @@ export default function CreateStreamModal() {
               )}
               {ratePerSecond === 0n && (
                 <div className="text-xs text-yellow-400 font-mono bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-2.5">
-                  ⚠ Rate too small — increase the amount or switch to a shorter unit (e.g. /day instead of /month)
+                  ⚠ Rate too small - increase the amount or switch to a shorter unit (e.g. /day instead of /month)
                 </div>
               )}
               <button
@@ -593,7 +593,7 @@ export default function CreateStreamModal() {
               <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-2xl">✓</div>
               <div>
                 <p className="font-semibold mb-1">
-                  Stream created — waiting for first verification
+                  Stream created - waiting for first verification
                 </p>
                 <p className="text-muted text-sm">
                   {perMilestoneDisplay} {selectedToken.symbol} per period ·{' '}

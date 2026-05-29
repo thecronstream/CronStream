@@ -54,7 +54,7 @@ const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
 const INTEGRATIONS = [
   { key: 'github',    name: 'GitHub',    icon: <GithubIcon />,    bg: 'bg-white/5',       desc: 'Verify merged PRs and passing CI',              connectedKey: 'github_connected' },
-  { key: 'atlassian', name: 'Jira',      icon: <JiraIcon />,      bg: 'bg-blue-500/10',   desc: 'Verify ticket status — Done, In Review, or custom states', connectedKey: 'atlassian_connected' },
+  { key: 'atlassian', name: 'Jira',      icon: <JiraIcon />,      bg: 'bg-blue-500/10',   desc: 'Verify ticket status -Done, In Review, or custom states', connectedKey: 'atlassian_connected' },
   { key: 'bitbucket', name: 'Bitbucket', icon: <BitbucketIcon />, bg: 'bg-blue-400/10',   desc: 'Verify merged PRs and build pipelines',         connectedKey: 'bitbucket_connected' },
   { key: 'figma',     name: 'Figma',     icon: <FigmaIcon />,     bg: 'bg-purple-500/10', desc: 'Verify approved frames and published components', connectedKey: 'figma_connected' },
 ];
@@ -168,10 +168,10 @@ function IntegrationsSection({ profile }) {
       <Section title="How verification works">
         <div className="flex flex-col divide-y divide-border border border-border rounded-xl overflow-hidden">
           {[
-            { step: '01', label: 'Contractor completes work',    desc: 'PR merged, Jira ticket closed, Figma file approved — whatever your team tracks' },
+            { step: '01', label: 'Contractor completes work',    desc: 'PR merged, Jira ticket closed, Figma file approved -whatever your team tracks' },
             { step: '02', label: 'Agent checks all sources',     desc: 'CronStream queries your connected integrations and runs 3-layer verification' },
             { step: '03', label: 'Stream extends automatically', desc: 'If verified, the agent signs an EIP-712 voucher and extends the stream window' },
-            { step: '04', label: 'No verify → stream freezes',   desc: 'Milestone fails any check — stream expires, unearned funds are reclaimable' },
+            { step: '04', label: 'No verify, stream freezes',   desc: 'Milestone fails any check - stream expires, unearned funds are reclaimable' },
           ].map(({ step, label, desc }) => (
             <div key={step} className="flex items-start gap-4 px-4 py-3">
               <span className="text-xs font-mono text-muted/50 mt-0.5 shrink-0 w-5">{step}</span>
@@ -285,7 +285,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-sm">Your API key</h3>
-                    <p className="text-xs text-muted">Copy it now — you won't be able to see it again.</p>
+                    <p className="text-xs text-muted">Copy it now -you won't be able to see it again.</p>
                   </div>
                 </div>
                 <div className="bg-dark border border-border rounded-xl px-4 py-3 font-mono text-xs break-all text-white select-all">
@@ -308,7 +308,7 @@ export default function Settings() {
             </div>
           )}
 
-          <Section title="API Keys" desc="Use your API key to authenticate requests to the CronStream agent. Keys are shown once at generation — store yours securely.">
+          <Section title="API Keys" desc="Use your API key to authenticate requests to the CronStream agent. Keys are shown once at generation -store yours securely.">
             <div className="bg-dark border border-border rounded-xl overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3">
                 <span className={`w-2 h-2 rounded-full ${hasKey && keyState !== 'deleted' ? 'bg-accent' : 'bg-border'}`} />

@@ -8,7 +8,7 @@ import Watermark from '../components/Watermark';
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
-// Redacted line — mimics a sealed document field
+// Redacted line - mimics a sealed document field
 function RedactedLine({ width = 'w-full', short = false }) {
   return (
     <div className={`h-2.5 rounded-sm bg-white/5 ${width} ${short ? 'max-w-[40%]' : ''} relative overflow-hidden`}>
@@ -25,7 +25,7 @@ export default function PublicProfile() {
 
   const [status, setStatus] = useState('idle');
 
-  // Only fetch once wallet is connected — never expose contractor info to unauthenticated visitors
+  // Only fetch once wallet is connected - never expose contractor info to unauthenticated visitors
   useEffect(() => {
     if (!isConnected || !username) return;
     setStatus('loading');
@@ -51,7 +51,7 @@ export default function PublicProfile() {
 
   const resuming = isConnecting || isReconnecting;
 
-  // Reference number from username — makes it feel like a real payment request
+  // Reference number from username - makes it feel like a real payment request
   const ref = `CS-${username?.toUpperCase().slice(0, 3)}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
 
   return (
@@ -96,7 +96,7 @@ export default function PublicProfile() {
 
         <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
 
-          {/* Logo — top */}
+          {/* Logo - top */}
           <button
             onClick={() => navigate('/')}
             className="flex items-center gap-2 select-none opacity-70 hover:opacity-100 transition-opacity mb-2"
@@ -149,7 +149,7 @@ export default function PublicProfile() {
                   </div>
                 </div>
 
-                {/* Redacted document body — shows something is there but sealed */}
+                {/* Redacted document body - shows something is there but sealed */}
                 <div className="px-5 py-4 flex flex-col gap-3 border-b border-border/60">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-white/[0.03] border border-border shrink-0" />
@@ -212,11 +212,11 @@ export default function PublicProfile() {
             </div>
           )}
 
-          {/* ── Connected: modal open — fallback if dismissed ── */}
+          {/* ── Connected: modal open - fallback if dismissed ── */}
           {isConnected && status === 'found' && (
             <div className="card w-full text-center py-8 flex flex-col items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent text-lg">✓</div>
-              <p className="font-semibold text-sm">Authorized — complete setup in the modal</p>
+              <p className="font-semibold text-sm">Authorized - complete setup in the modal</p>
             </div>
           )}
 

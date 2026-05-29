@@ -108,7 +108,7 @@ export default function StreamDetail() {
   const streamChainId = stream?.chainId ?? 421614;
   const contractAddr  = getContractAddress(streamChainId);
 
-  // ── All hooks must be called unconditionally — no early returns before this line ──
+  // ── All hooks must be called unconditionally - no early returns before this line ──
 
   // Reclaim unearned (sender, after stream expires)
   const {
@@ -144,7 +144,7 @@ export default function StreamDetail() {
 
   useEffect(() => { if (cancelSuccess) refresh?.(); }, [cancelSuccess]);
 
-  // Live on-chain balance — enabled only when stream exists
+  // Live on-chain balance - enabled only when stream exists
   const { data: liveBalance } = useReadContract({
     address:      contractAddr,
     abi:          ROUTER_ABI,
@@ -215,7 +215,7 @@ export default function StreamDetail() {
   const isRecipient  = address?.toLowerCase() === recipient?.toLowerCase();
   const isSender     = address?.toLowerCase() === sender?.toLowerCase();
 
-  // Live balance — prefer fresh on-chain read; fall back to server-cached rawBalance
+  // Live balance - prefer fresh on-chain read; fall back to server-cached rawBalance
   const resolvedBalance = liveBalance ?? rawBalance ?? 0n;
 
   // Unearned = funds the contractor hasn't earned yet (reclaimable by sender)
@@ -236,17 +236,17 @@ export default function StreamDetail() {
       ?? msg.match(/execution reverted[:\s]+"?([^"]+)"?/i);
     if (revertMatch) {
       const reason = revertMatch[1].trim();
-      if (/NothingToReclaim/i.test(reason))  return 'Nothing to reclaim — contractor earned all deposited funds.';
+      if (/NothingToReclaim/i.test(reason))  return 'Nothing to reclaim - contractor earned all deposited funds.';
       if (/NotSender/i.test(reason))         return 'Only the stream creator can reclaim funds.';
-      if (/StreamStillActive/i.test(reason)) return 'Stream is still active — wait for it to expire first.';
-      if (/SafetyWindowExpired/i.test(reason)) return 'Stream already expired — use Reclaim instead of Cancel.';
+      if (/StreamStillActive/i.test(reason)) return 'Stream is still active - wait for it to expire first.';
+      if (/SafetyWindowExpired/i.test(reason)) return 'Stream already expired - use Reclaim instead of Cancel.';
       return `Contract error: ${reason}`;
     }
     if (/simulation failed|call revert exception/i.test(msg)) {
-      if (/NothingToReclaim/i.test(msg)) return 'Nothing to reclaim — contractor earned all deposited funds.';
-      return 'Transaction simulation failed — the contract rejected this call.';
+      if (/NothingToReclaim/i.test(msg)) return 'Nothing to reclaim - contractor earned all deposited funds.';
+      return 'Transaction simulation failed - the contract rejected this call.';
     }
-    return 'Transaction failed — check your wallet and try again.';
+    return 'Transaction failed - check your wallet and try again.';
   }
 
   const reclaimErrMsg = txErrorMessage(reclaimErrorObj);
@@ -268,7 +268,7 @@ export default function StreamDetail() {
   const CHAIN_NAMES = { 421614: 'Arbitrum Sepolia', 46630: 'Robinhood Chain Testnet' };
   const chainName = CHAIN_NAMES[streamChainId] ?? `Chain ${streamChainId}`;
 
-  // Fix 3: Stream ID removed from detail table — already shown in header chip
+  // Fix 3: Stream ID removed from detail table - already shown in header chip
   const detailRows = [
     { label: 'From',            value: sender,    copy: sender,    chainId: streamChainId },
     { label: 'To',              value: recipient, copy: recipient, chainId: streamChainId },
@@ -340,7 +340,7 @@ export default function StreamDetail() {
                   <p className="text-sm text-muted font-mono leading-relaxed max-w-xs mx-auto">
                     Submit work via <span className="text-white capitalize">{verificationSource ?? 'GitHub'}</span>
                     {verificationTarget ? <span> · <span className="text-accent">{verificationTarget}</span></span> : null}
-                    {' '}to unlock your first period. The agent is watching — once it confirms your work, funds start streaming to you.
+                    {' '}to unlock your first period. The agent is watching - once it confirms your work, funds start streaming to you.
                   </p>
                 </>
               ) : isPending && isSender ? (
@@ -392,7 +392,7 @@ export default function StreamDetail() {
                   />
                 )}
 
-                {/* Sender: reclaim unearned after expiry — only if there IS unearned and not pending */}
+                {/* Sender: reclaim unearned after expiry - only if there IS unearned and not pending */}
                 {isSender && !isActive && !isPending && !reclaimSuccess && !cancelSuccess && hasUnearned && (
                   <TxButton
                     label="Reclaim unearned"
@@ -407,12 +407,12 @@ export default function StreamDetail() {
                   />
                 )}
 
-                {/* Contractor: pending — tell them what to do */}
+                {/* Contractor: pending - tell them what to do */}
                 {isRecipient && isPending && (
                   <span className="text-xs text-yellow-400/80 font-mono">Push verified work to start earning</span>
                 )}
 
-                {/* Sender: pending — reassure funds are safe */}
+                {/* Sender: pending - reassure funds are safe */}
                 {isSender && isPending && (
                   <span className="text-xs text-yellow-400/80 font-mono">Waiting for contractor's first verified push</span>
                 )}
@@ -535,7 +535,7 @@ export default function StreamDetail() {
             ratePerSecond,
             streamValidUntil,
             recipient,
-            rawBalance:       resolvedBalance,   // live balance — not the stale server value
+            rawBalance:       resolvedBalance,   // live balance - not the stale server value
             chainId:          streamChainId,
           }}
           onClose={() => setShowWithdraw(false)}

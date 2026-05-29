@@ -12,11 +12,11 @@ function parseWriteError(err) {
   if (/user rejected|user denied|rejected the request/i.test(msg))
     return 'You rejected the transaction.';
 
-  // Custom errors decoded by viem (requires errors in ABI) — name appears directly in message
+  // Custom errors decoded by viem (requires errors in ABI) - name appears directly in message
   if (/NotRecipient/i.test(msg))             return 'Only the stream recipient can withdraw.';
-  if (/UnderflowWithdrawalLimit/i.test(msg)) return 'Amount exceeds available balance — try a slightly smaller amount.';
+  if (/UnderflowWithdrawalLimit/i.test(msg)) return 'Amount exceeds available balance - try a slightly smaller amount.';
   if (/StreamDoesNotExist/i.test(msg))       return 'Stream not found on-chain.';
-  if (/whenNotPaused|Paused\(\)/i.test(msg)) return 'Contract is paused — withdrawals temporarily disabled.';
+  if (/whenNotPaused|Paused\(\)/i.test(msg)) return 'Contract is paused - withdrawals temporarily disabled.';
 
   // Legacy string revert reasons (older RPC responses)
   const revertMatch = msg.match(/reason:\s*(.+?)(?:\n|$)/i)
@@ -25,13 +25,13 @@ function parseWriteError(err) {
   if (revertMatch) {
     const reason = revertMatch[1].trim();
     if (/NotRecipient/i.test(reason))              return 'Only the stream recipient can withdraw.';
-    if (/UnderflowWithdrawalLimit/i.test(reason))  return 'Amount exceeds available balance — try a slightly smaller amount.';
-    if (/whenNotPaused|paused/i.test(reason))      return 'Contract is paused — withdrawals temporarily disabled.';
+    if (/UnderflowWithdrawalLimit/i.test(reason))  return 'Amount exceeds available balance - try a slightly smaller amount.';
+    if (/whenNotPaused|paused/i.test(reason))      return 'Contract is paused - withdrawals temporarily disabled.';
     return `Contract error: ${reason}`;
   }
 
   if (/simulation failed|call revert exception/i.test(msg))
-    return 'Transaction simulation failed — the contract rejected this call.';
+    return 'Transaction simulation failed - the contract rejected this call.';
 
   // Surface the raw message in the last-resort fallback so it's debuggable
   const short = msg.slice(0, 120).replace(/\n/g, ' ');
@@ -43,7 +43,7 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
   const walletChainId = useChainId();
   const chainId = streamChainId ?? walletChainId;
 
-  // Live on-chain balance — refreshes every 3s
+  // Live on-chain balance - refreshes every 3s
   const { data: onChainBalance, refetch: refetchBalance } = useReadContract({
     address:  getContractAddress(chainId),
     abi:      ROUTER_ABI,
@@ -54,7 +54,7 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
   });
 
   // Prefer live on-chain read; fall back to the balance the parent already fetched.
-  // rawBalance is a BigInt — 0n is NOT nullish so we check for undefined explicitly.
+  // rawBalance is a BigInt - 0n is NOT nullish so we check for undefined explicitly.
   const resolvedBalance = onChainBalance !== undefined ? onChainBalance : (rawBalance ?? 0n);
   const maxAmount = resolvedBalance > 0n ? parseFloat(formatUnits(resolvedBalance, 6)) : 0;
 
@@ -97,7 +97,7 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
     // directly instead of converting float → string → parseUnits.
     // This prevents off-by-one failures caused by integer division truncation in
     // ratePerSecond (e.g. 30 USDC / 86400s = 347 wei/s → earned = 29.9808 USDC,
-    // not 30.0000 — submitting parseUnits("30.000000") would revert).
+    // not 30.0000 - submitting parseUnits("30.000000") would revert).
     const isMax      = val >= maxAmount - 0.000001;
     const withdrawRaw = isMax ? resolvedBalance : parseUnits(amount, 6);
 
@@ -106,7 +106,7 @@ export default function WithdrawModal({ stream, onClose, onSuccess }) {
       abi:          ROUTER_ABI,
       functionName: 'withdrawFromStream',
       args:         [streamId, withdrawRaw],
-      // ⚠️ do NOT pass chainId — triggers MetaMask "Switch Network" instead of "Sign tx"
+      // ⚠️ do NOT pass chainId - triggers MetaMask "Switch Network" instead of "Sign tx"
     });
   }
 

@@ -13,13 +13,13 @@ import MagneticDock  from '../../components/MagneticDock';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 
 // ─── Helper: convert useStreams enriched row → StreamCard-compatible tuple/obj ──
-// StreamCard reads stream[0]??stream.sender etc. — just pass the enriched object.
+// StreamCard reads stream[0]??stream.sender etc. - just pass the enriched object.
 function toStreamData(s) {
   // If the server enriched with on-chain data, these fields exist.
-  // If not (offline / DB only), they'll be 0n — card shows skeleton until refresh.
+  // If not (offline / DB only), they'll be 0n - card shows skeleton until refresh.
   if (!s) return undefined;
   if (s.sender && s.streamValidUntil) return s; // already enriched
-  return undefined; // not yet enriched — stay in loading state
+  return undefined; // not yet enriched - stay in loading state
 }
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
@@ -47,15 +47,15 @@ function ContractorSearch({ onSelect }) {
     setLoading(true); setErrMsg('');
     try {
       const res = await fetch(`${AGENT_URL}/api/v1/contractor/lookup?q=${encodeURIComponent(q.trim())}`);
-      if (res.status === 429) { setErrMsg('Too many requests — slow down a bit.'); setOpen(false); return; }
-      if (res.status === 503 || res.status === 502) { setErrMsg('Agent starting up — try again shortly.'); setOpen(false); return; }
+      if (res.status === 429) { setErrMsg('Too many requests - slow down a bit.'); setOpen(false); return; }
+      if (res.status === 503 || res.status === 502) { setErrMsg('Agent starting up - try again shortly.'); setOpen(false); return; }
       if (!res.ok) { setErrMsg(`Server error (${res.status})`); setOpen(false); return; }
       const { results: rows } = await res.json();
       setResults(rows);
       setOpen(true);
     } catch (err) {
       const offline = err.message?.includes('fetch') || err.message?.includes('network') || err.name === 'TypeError';
-      setErrMsg(offline ? 'Cannot reach agent — it may be starting up.' : 'Unexpected error.');
+      setErrMsg(offline ? 'Cannot reach agent - it may be starting up.' : 'Unexpected error.');
       setOpen(false);
     } finally {
       setLoading(false);
@@ -115,7 +115,7 @@ function ContractorSearch({ onSelect }) {
                     }
                   </div>
 
-                  {/* Info — takes remaining space, truncates */}
+                  {/* Info - takes remaining space, truncates */}
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{r.name || 'Unnamed'}</div>
                     <div className="text-xs text-muted font-mono truncate">
@@ -123,7 +123,7 @@ function ContractorSearch({ onSelect }) {
                     </div>
                   </div>
 
-                  {/* Action — fixed width so it never wraps */}
+                  {/* Action - fixed width so it never wraps */}
                   <button
                     className="shrink-0 text-xs font-semibold text-accent border border-accent/30 bg-accent/5
                       hover:bg-accent hover:text-dark hover:border-accent
@@ -164,13 +164,13 @@ export default function CompanyDashboard() {
   const { online, data: agentData } = useAgentStatus();
 
 
-  // Stream chain — comes from DB via useStreams (server enriched with chain_id)
+  // Stream chain - comes from DB via useStreams (server enriched with chain_id)
   const streamChainId = sent[0]?.chainId ?? chainId;
   const sentIds = useMemo(() => sent.map(s => s.streamId), [sent]);
 
   // ── Fresh on-chain reads ──────────────────────────────────────────────────
-  // balanceOf  — live claimable balance (ticks up every second while active)
-  // streams()  — full struct: gives fresh streamValidUntil, totalDeposited, etc.
+  // balanceOf  - live claimable balance (ticks up every second while active)
+  // streams()  - full struct: gives fresh streamValidUntil, totalDeposited, etc.
   //              Critical when data came from Blockscout/viem fallback which
   //              doesn't include streamValidUntil → all streams appear "0 active"
   const balCalls = useMemo(() => sent.map(s => ({
@@ -395,7 +395,7 @@ export default function CompanyDashboard() {
               </p>
               <p className="text-muted text-xs max-w-xs leading-relaxed">
                 {reclaimableStreams.length > 0
-                  ? `${reclaimableStreams.length} expired stream${reclaimableStreams.length > 1 ? 's have' : ' has'} unearned funds — go to History to reclaim them.`
+                  ? `${reclaimableStreams.length} expired stream${reclaimableStreams.length > 1 ? 's have' : ' has'} unearned funds - go to History to reclaim them.`
                   : sent.length > 0
                     ? 'All streams have ended. Start a new one to begin paying.'
                     : 'Search for a contractor above or tap New Stream to start paying per second.'}

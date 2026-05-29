@@ -233,7 +233,7 @@ export default function Landing() {
               {
                 icon: 'https://img.icons8.com/color/48/document--v1.png',
                 title: 'Event-Driven Audit Trail',
-                desc: 'Every dollar unlocked is tied to a real-world event — a merged PR, a Jira ticket closed, a Figma design approved. Auditors get proof, not promises.',
+                desc: 'Every dollar unlocked is tied to a real-world event - a merged PR, a Jira ticket closed, a Figma design approved. Auditors get proof, not promises.',
               },
               {
                 icon: 'https://img.icons8.com/color/48/cancel.png',

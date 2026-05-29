@@ -1,5 +1,5 @@
 /**
- * Stream History page — complete record of all received streams.
+ * Stream History page - complete record of all received streams.
  * Chart and withdrawal tracking live on the Income page (/app/income).
  */
 import { useState, useMemo } from 'react';
@@ -234,7 +234,7 @@ export default function StreamHistory() {
             <p className="text-sm font-medium mb-2">No completed streams yet</p>
             <p className="text-xs text-muted font-mono">
               {received.length > 0
-                ? 'Your streams still have funds to claim — check the Income page.'
+                ? 'Your streams still have funds to claim - check the Income page.'
                 : 'Streams appear here once they are fully claimed or expired.'}
             </p>
           </div>
