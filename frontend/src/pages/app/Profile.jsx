@@ -77,7 +77,7 @@ function FieldView({ label, value, prefix }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Profile() {
   const { address } = useAccount();
-  const { profile, saveProfile } = useProfile(address);
+  const { profile, saveProfile, refreshProfile } = useProfile(address);
   const { authFetch } = useAuth();
   const { sent, received } = useStreams();
   const { data: agentData } = useAgentStatus();
@@ -140,11 +140,12 @@ export default function Profile() {
       await authFetch(`${AGENT_URL}/api/v1/auth/${provider}`, { method: 'DELETE' });
       setOauthToast({ provider, status: 'disconnected' });
       setTimeout(() => setOauthToast(null), 3000);
+      refreshProfile();
     } catch {
       setOauthToast({ provider, status: 'error', message: 'Disconnect failed' });
       setTimeout(() => setOauthToast(null), 4000);
     }
-  }, [authFetch]);
+  }, [authFetch, refreshProfile]);
 
   const role      = profile?.role ?? '';
   const isCompany = role === 'company';

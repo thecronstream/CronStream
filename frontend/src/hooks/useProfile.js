@@ -194,5 +194,9 @@ export function useProfile(address) {
     }
   }, [address]);
 
-  return { profile, saveProfile, loading, synced, hasProfile: !!profile };
+  function refreshProfile() {
+    if (address) { invalidateCache(address); fetchProfile(address); }
+  }
+
+  return { profile, saveProfile, loading, synced, hasProfile: !!profile, refreshProfile };
 }

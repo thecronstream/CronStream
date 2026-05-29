@@ -99,11 +99,12 @@ function IntegrationsSection({ profile }) {
       await authFetch(`${AGENT_URL}/api/v1/auth/${provider}`, { method: 'DELETE' });
       setToast({ provider, status: 'disconnected' });
       setTimeout(() => setToast(null), 3000);
+      refreshProfile();
     } catch {
       setToast({ provider, status: 'error', message: 'Disconnect failed' });
       setTimeout(() => setToast(null), 4000);
     }
-  }, [authFetch]);
+  }, [authFetch, refreshProfile]);
 
   return (
     <>
@@ -196,7 +197,7 @@ export default function Settings() {
   const navigate    = useNavigate();
   const { address } = useAccount();
   const { authFetch } = useAuth();
-  const { profile, saveProfile, synced } = useProfile(address);
+  const { profile, saveProfile, synced, refreshProfile } = useProfile(address);
   const { online, data: agentData } = useAgentStatus();
   const { sent, received } = useStreams();
 
