@@ -36,8 +36,7 @@ function tokenMeta(chainId, tokenAddress) {
 function isPendingStream(stream) {
   const until = Number(stream.streamValidUntil ?? 0);
   const start = Number(stream.startTime ?? 0);
-  const deposited = stream.totalDeposited ?? 0n;
-  return deposited > 0n && (until === 0 || until <= start);
+  return start > 0 && until <= start;
 }
 
 function getStatus(stream) {

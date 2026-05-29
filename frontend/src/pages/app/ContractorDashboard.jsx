@@ -418,10 +418,9 @@ export default function ContractorDashboard() {
   // Pending = deposit exists but first period not yet opened by agent (streamValidUntil <= startTime)
   function isStreamPending(e) {
     if (isStreamActive(e)) return false;
-    const deposited = BigInt(e.totalDeposited ?? 0n);
-    const until     = Number(e.streamValidUntil ?? 0);
-    const start     = Number(e.startTime ?? 0);
-    return deposited > 0n && (until === 0 || until <= start);
+    const until = Number(e.streamValidUntil ?? 0);
+    const start = Number(e.startTime ?? 0);
+    return start > 0 && until <= start;
   }
 
   const activeStreams  = enriched.filter(isStreamActive);

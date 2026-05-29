@@ -228,25 +228,21 @@ export default function CompanyDashboard() {
     enriched.filter(e => e.streamValidUntil && Number(e.streamValidUntil) > nowSec),
   [enriched]);
 
+  function isEnrichedPending(e) {
+    if (e.streamValidUntil && Number(e.streamValidUntil) > nowSec) return false;
+    const until = Number(e.streamValidUntil ?? 0);
+    const start = Number(e.startTime ?? 0);
+    return start > 0 && until <= start;
+  }
+
   const pendingStreams = useMemo(() =>
-    enriched.filter(e => {
-      if (e.streamValidUntil && Number(e.streamValidUntil) > nowSec) return false;
-      const deposited = e.totalDeposited ?? 0n;
-      const until     = Number(e.streamValidUntil ?? 0);
-      const start     = Number(e.startTime ?? 0);
-      return deposited > 0n && (until === 0 || until <= start);
-    }),
+    enriched.filter(isEnrichedPending),
   [enriched]);
 
-  // Completed = expired AND not pending (pending have deposit locked but period never opened)
   const completedStreams = useMemo(() =>
     enriched.filter(e => {
       if (e.streamValidUntil && Number(e.streamValidUntil) > nowSec) return false;
-      const deposited = e.totalDeposited ?? 0n;
-      const until     = Number(e.streamValidUntil ?? 0);
-      const start     = Number(e.startTime ?? 0);
-      const isPending = deposited > 0n && (until === 0 || until <= start);
-      return !isPending;
+      return !isEnrichedPending(e);
     }),
   [enriched]);
 
