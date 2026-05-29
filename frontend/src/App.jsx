@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 
 import Landing       from './pages/Landing';
+import Faucet        from './pages/Faucet';
 import SiwePrompt   from './components/SiwePrompt';
 import Privacy       from './pages/Privacy';
 import Terms         from './pages/Terms';
@@ -47,6 +48,7 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/"        element={<Landing />} />
+      <Route path="/faucet"  element={<Faucet />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/terms"   element={<Terms />} />
       <Route path="/p/:username" element={<PublicProfile />} />
