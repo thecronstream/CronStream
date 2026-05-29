@@ -21,10 +21,24 @@ import jwt from 'jsonwebtoken';
 const _tokenCache = new Map(); // installationId → { token, expiresAt }
 
 function getPrivateKey() {
-  const raw = process.env.GITHUB_APP_PRIVATE_KEY;
+  let raw = process.env.GITHUB_APP_PRIVATE_KEY;
   if (!raw) throw new Error('GITHUB_APP_PRIVATE_KEY not set');
-  // Render stores multi-line secrets with literal \n — normalise to real newlines
-  return raw.includes('\\n') ? raw.replace(/\\n/g, '\n') : raw;
+
+  // Strip accidental surrounding quotes (Render sometimes keeps them)
+  raw = raw.trim().replace(/^["']|["']$/g, '');
+
+  // Render / .env store multi-line secrets with literal \n — normalise to real newlines
+  if (raw.includes('\\n')) raw = raw.replace(/\\n/g, '\n');
+
+  // Base64-encoded PEM fallback — if no PEM header, try decoding
+  if (!raw.includes('-----BEGIN')) {
+    try {
+      const decoded = Buffer.from(raw, 'base64').toString('utf8');
+      if (decoded.includes('-----BEGIN')) raw = decoded;
+    } catch { /* not base64 */ }
+  }
+
+  return raw;
 }
 
 /**

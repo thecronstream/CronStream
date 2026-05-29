@@ -22,7 +22,6 @@ import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
 import { startMilestonePoller } from './milestonePoller.js';
-import { getInstallationToken } from './githubApp.js';
 import { generateNonce, verifySiwe, issueJwt, verifyJwt, verifyJwtOrApiKey, verifyJwtOrApiKeyOrX402 } from './auth.js';
 
 const app = express();
@@ -663,143 +662,17 @@ app.post('/api/v1/webhook/github', async (req, res, next) => { try {
     }
   }
 
-  // ── Process each stream ───────────────────────────────────────────────────
-  const results = [];
-  for (const { streamId, nonce, streamValidUntil = 0, startTime = 0 } of streamsToProcess) {
-    const nowSec   = Math.floor(Date.now() / 1000);
-    const isActive  = streamValidUntil > nowSec;
-    const isPending = streamValidUntil <= startTime && startTime > 0;
-
-    // Active stream mid-period — work is noted but extension is deferred.
-    // The poller will extend when the period nears its end, ensuring the
-    // contractor earns for the full configured period, not from the moment
-    // they first pushed.
-    if (isActive && !isPending) {
-      console.log(`[webhook] Stream ${streamId.slice(0, 10)}… is active until ${new Date(streamValidUntil * 1000).toISOString()} — deferring extension to period end`);
-      results.push({ streamId, status: 'deferred', reason: 'active — poller will extend at period end' });
-      continue;
-    }
-
-    if (await isAlreadyProcessed(streamId, repo, eventRef)) {
-      console.log(`[webhook] Already processed stream=${streamId} ref=${eventRef} — skipping`);
-      results.push({ streamId, status: 'already_processed' });
-      continue;
-    }
-
-    // ── Load stream metadata + company credentials ──────────────────────────
-    let verificationSource = 'github';
-    let verificationTarget = null;
-    let companyCredentials = null;
-
-    try {
-      const stream = await getStream(streamId);
-      if (stream) {
-        verificationSource = stream.verification_source ?? 'github';
-        verificationTarget = stream.verification_target ?? stream.github_repo ?? null;
-        // Load credentials for ALL sources — github now needs the installation ID
-        if (stream.sender) {
-          companyCredentials = await getProfile(stream.sender);
-        }
-      }
-    } catch { /* DB unavailable — fall through with github defaults */ }
-
-    // Resolve a GitHub App installation token for this company (private repo access).
-    // Falls back to the agent's env token inside the API helpers for public repos.
-    let githubToken = null;
-    if (verificationSource === 'github' && companyCredentials?.github_installation_id) {
-      githubToken = await getInstallationToken(companyCredentials.github_installation_id);
-    }
-
-    // For push events (no PR), verify CI against the actual commit SHA
-    // instead of assuming success — prevents accidental extensions on unverified pushes.
-    let ciConclusion = 'success';
-    if (event === 'push' && commitSha && verificationSource === 'github') {
-      try {
-        const ghToken = githubToken ?? process.env.GITHUB_TOKEN;
-        if (ghToken) {
-          const ciRes = await fetch(
-            `https://api.github.com/repos/${repo}/actions/runs?head_sha=${commitSha}&status=completed&per_page=5`,
-            { headers: { Authorization: `Bearer ${ghToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, signal: AbortSignal.timeout(6000) },
-          );
-          if (ciRes.ok) {
-            const ciData = await ciRes.json();
-            const runs = ciData.workflow_runs ?? [];
-            if (runs.length > 0 && !runs.every(r => r.conclusion === 'success')) {
-              ciConclusion = runs.find(r => r.conclusion !== 'success')?.conclusion ?? 'failure';
-            }
-          }
-        }
-      } catch { /* CI check unavailable — allow through */ }
-    }
-
-    const githubPayload = verificationSource === 'github' ? {
-      repository:   payload.repository,
-      pull_request: pr ?? { merged: true, user: { login: payload.pusher?.name ?? 'unknown' }, body: metaBody },
-      workflow_run: { conclusion: ciConclusion },
-    } : null;
-
-    // ── Verification ────────────────────────────────────────────────────────
-    let verificationResult;
-    try {
-      verificationResult = await verifyMilestone({
-        streamId,
-        contractorAddress: pr?.user?.login ?? payload.pusher?.name ?? 'unknown',
-        verificationSource,
-        verificationTarget,
-        githubPayload,
-        companyCredentials,
-        githubToken,
-      });
-    } catch (err) {
-      if (err instanceof VerificationError) {
-        console.warn(`[webhook] stream=${streamId} verification failed (layer ${err.layer}): ${err.message}`);
-        results.push({ streamId, status: 'verification_failed', error: err.message });
-        continue;
-      }
-      console.error('[webhook] Unexpected verification error:', err);
-      results.push({ streamId, status: 'error', error: 'Internal verification error' });
-      continue;
-    }
-
-    // ── Sign ────────────────────────────────────────────────────────────────
-    const extensionDurationSeconds = getExtensionDuration();
-    const expiry                   = getVoucherExpiry();
-    let signature;
-    try {
-      signature = await signExtensionVoucher({ streamId, extensionDurationSeconds, nonce, expiry });
-    } catch (err) {
-      console.error('[webhook] Signing error:', err);
-      results.push({ streamId, status: 'error', error: 'Failed to sign voucher' });
-      continue;
-    }
-
-    // ── Submit on-chain ─────────────────────────────────────────────────────
-    let onChainResult;
-    try {
-      onChainResult = await submitExtension({ streamId, extensionDurationSeconds, nonce, expiry, signature });
-    } catch (err) {
-      console.error('[webhook] On-chain submission failed:', err);
-      results.push({ streamId, status: 'error', error: err.message, voucher: { streamId, extensionDurationSeconds, nonce, expiry, signature } });
-      continue;
-    }
-
-    // ── Persist ─────────────────────────────────────────────────────────────
-    await recordExtension({
-      streamId,
-      repository:    repo,
-      prNumber,
-      eventRef,
-      chainId:       onChainResult.chainId,
-      chainName:     onChainResult.chainName,
-      txHash:        onChainResult.txHash,
-      blockNumber:   onChainResult.blockNumber,
-      gasUsed:       onChainResult.gasUsed,
-      voucherExpiry: expiry,
-    });
-
-    console.log(`[webhook] ✓ Extension complete | stream=${streamId} | tx=${onChainResult.txHash}`);
-    results.push({ streamId, status: 'extended', verification: verificationResult, onChain: onChainResult });
-  }
+  // ── Acknowledge each stream ────────────────────────────────────────────────
+  // Pay-in-arrears model: the webhook never extends directly. A contractor must
+  // complete a FULL work-period before any payment is released. The milestone
+  // poller runs every 15 min, reads each stream's period_seconds + on-chain
+  // lastWindowStart, and extends only once a full period of verified work has
+  // elapsed. The webhook's job is just to confirm the event reached us — the
+  // poller owns all verification and extension timing.
+  const results = streamsToProcess.map(({ streamId }) => {
+    console.log(`[webhook] Event noted for stream ${streamId.slice(0, 10)}… — poller verifies at period end (arrears)`);
+    return { streamId, status: 'noted', reason: 'poller enforces period-end verification' };
+  });
 
   return res.json({ received: true, success: true, results });
 } catch (err) {
@@ -977,6 +850,7 @@ app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res
     ratePerSecond,
     token,
     chainId: bodyChainId,
+    extensionDurationSeconds, // = the period length (1 week, 2 weeks, etc.)
   } = req.body;
 
   // Accept either new-style verificationTarget or legacy repo field
@@ -1007,6 +881,7 @@ app.post('/api/v1/register-stream', devAuth(getProfileByApiKey), async (req, res
       ratePerSecond:      ratePerSecond ?? null,
       token:              token ?? null,
       contractAddress,
+      periodSeconds:      extensionDurationSeconds ?? null,
     });
 
     console.log(

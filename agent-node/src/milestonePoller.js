@@ -122,6 +122,64 @@ async function pollGitHub(repo, sinceTimestamp, token) {
     };
   }
 
+  // ── No qualifying merged PR — check direct commits to the default branch ────
+  // Contractors who own the repo often push straight to main without a PR.
+  const sinceISO = new Date(sinceTimestamp * 1000).toISOString();
+  let commits;
+  try {
+    commits = await ghGet(
+      `/repos/${owner}/${repoName}/commits?since=${encodeURIComponent(sinceISO)}&per_page=20`,
+      token,
+    );
+  } catch (err) {
+    console.warn(`[poller:github] Could not fetch commits for ${repo}: ${err.message}`);
+    return null;
+  }
+
+  if (!Array.isArray(commits) || commits.length === 0) return null;
+
+  for (const commit of commits) {
+    const sha = commit.sha;
+    if (!sha) continue;
+
+    // Fetch the commit's file list to check for qualifying changes
+    let detail;
+    try {
+      detail = await ghGet(`/repos/${owner}/${repoName}/commits/${sha}`, token);
+    } catch { continue; }
+
+    const files = detail.files ?? [];
+    if (!hasQualifyingDiff(files)) continue;
+
+    // CI status for this commit
+    let ciPassed = true;
+    try {
+      const runs = await ghGet(
+        `/repos/${owner}/${repoName}/actions/runs?head_sha=${sha}&status=completed&per_page=10`,
+        token,
+      );
+      const completedRuns = runs.workflow_runs ?? [];
+      if (completedRuns.length > 0) {
+        ciPassed = completedRuns.every(r => r.conclusion === 'success');
+      }
+    } catch { /* CI unavailable — allow through */ }
+
+    if (!ciPassed) {
+      console.log(`[poller:github] commit ${sha.slice(0, 7)} in ${repo} — CI did not pass, skipping`);
+      continue;
+    }
+
+    console.log(`[poller:github] ✓ Qualifying work found — commit ${sha.slice(0, 7)} in ${repo}`);
+    return {
+      eventRef: `POLL#COMMIT#${sha}`,
+      payload: {
+        repository:   { owner: { login: owner }, name: repoName, full_name: repo },
+        pull_request: { merged: true, user: { login: commit.author?.login ?? 'unknown' }, body: commit.commit?.message ?? '' },
+        workflow_run: { conclusion: 'success' },
+      },
+    };
+  }
+
   return null;
 }
 
@@ -234,7 +292,7 @@ async function pollFigma(target, sinceTimestamp, credentials) {
 // ─── Core poll loop ───────────────────────────────────────────────────────────
 
 async function checkStream(dbRow) {
-  const { stream_id: streamId, chain_id: chainId, verification_source: source, verification_target: target, sender } = dbRow;
+  const { stream_id: streamId, chain_id: chainId, verification_source: source, verification_target: target, sender, period_seconds: periodSeconds } = dbRow;
   if (!target || !sender) return;
 
   // Read on-chain state
@@ -249,14 +307,31 @@ async function checkStream(dbRow) {
   const now              = Math.floor(Date.now() / 1000);
   const streamValidUntil = Number(onChain.streamValidUntil ?? 0n);
   const startTime        = Number(onChain.startTime ?? 0n);
+  const lastWindowStart  = Number(onChain.lastWindowStart ?? onChain.startTime ?? 0n);
   const totalDeposited   = BigInt(onChain.totalDeposited ?? 0n);
   const nonce            = Number(onChain.nonce ?? 0n);
+
+  // Period length — falls back to the agent default if not stored on the stream
+  const period = Number(periodSeconds ?? process.env.DEFAULT_EXTENSION_SECONDS ?? 604800);
 
   const isPending  = streamValidUntil <= startTime && totalDeposited > 0n;
   const isExpiring = !isPending && streamValidUntil > now && (streamValidUntil - now) <= WARN_WINDOW_S;
   const isFrozen   = !isPending && streamValidUntil <= now && (now - streamValidUntil) <= FROZEN_LOOKBACK_S && totalDeposited > 0n;
 
   if (!isPending && !isExpiring && !isFrozen) return;
+
+  // ── Pay-in-arrears gate ────────────────────────────────────────────────────
+  // The contractor must complete a FULL period of work before the agent opens
+  // a window. We only extend once the period's worth of time has elapsed since
+  // the current window started (startTime for period 1, lastWindowStart after).
+  // This is the B2B model: work the week, then get paid for the week.
+  const periodAnchor  = isPending ? startTime : lastWindowStart;
+  const periodElapsed = now - periodAnchor;
+  if (periodElapsed < period) {
+    const remaining = Math.ceil((period - periodElapsed) / 3600);
+    console.log(`[poller] Stream ${streamId.slice(0, 10)}… period not yet complete (${remaining}h of work-period remaining) — skipping`);
+    return;
+  }
 
   const stateLabel = isPending ? 'pending' : isExpiring ? 'expiring' : 'frozen';
   console.log(`[poller] Checking ${stateLabel} stream ${streamId.slice(0, 10)}… source=${source} target=${target}`);
@@ -301,8 +376,10 @@ async function checkStream(dbRow) {
     return;
   }
 
-  // Sign voucher
-  const extensionDurationSeconds = Number(process.env.DEFAULT_EXTENSION_SECONDS ?? 86400);
+  // Sign voucher — open a window for exactly one period (the stream's own
+  // configured length), not a global default. This keeps the on-chain window
+  // matched to what the company set up.
+  const extensionDurationSeconds = period;
   const expiry = Math.floor(Date.now() / 1000) + VOUCHER_TTL_S;
 
   let signature;
