@@ -41,7 +41,7 @@ function parseWriteError(err) {
 export default function WithdrawModal({ stream, onClose, onSuccess }) {
   const { streamId, ratePerSecond, streamValidUntil, recipient, rawBalance, chainId: streamChainId } = stream;
   const walletChainId = useChainId();
-  const chainId = streamChainId ?? walletChainId;
+  const chainId = Number(streamChainId ?? walletChainId);
 
   // Live on-chain balance - refreshes every 3s
   const { data: onChainBalance, refetch: refetchBalance } = useReadContract({

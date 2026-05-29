@@ -70,7 +70,7 @@ async function pollGitHub(repo, sinceTimestamp, token, contractorLogin = null) {
       token,
     );
   } catch (err) {
-    console.warn(`[poller:github] Could not fetch PRs for ${repo}: ${err.message}`);
+    console.warn(`[verify:github] Could not fetch PRs for ${repo}: ${err.message}`);
     return null;
   }
 
@@ -88,7 +88,7 @@ async function pollGitHub(repo, sinceTimestamp, token, contractorLogin = null) {
     } catch { continue; }
 
     if (!hasQualifyingDiff(files)) {
-      console.log(`[poller:github] PR#${pr.number} in ${repo} — no qualifying diff, skipping`);
+      console.log(`[verify:github] PR#${pr.number} in ${repo} — no qualifying diff, skipping`);
       continue;
     }
 
@@ -109,11 +109,11 @@ async function pollGitHub(repo, sinceTimestamp, token, contractorLogin = null) {
     }
 
     if (!ciPassed) {
-      console.log(`[poller:github] PR#${pr.number} in ${repo} — CI did not pass, skipping`);
+      console.log(`[verify:github] PR#${pr.number} in ${repo} — CI did not pass, skipping`);
       continue;
     }
 
-    console.log(`[poller:github] ✓ Qualifying work found — PR#${pr.number} in ${repo}`);
+    console.log(`[verify:github] ✓ Qualifying work found — PR#${pr.number} in ${repo}`);
 
     // Return synthetic payload matching the format verifyMilestone expects
     return {
@@ -137,7 +137,7 @@ async function pollGitHub(repo, sinceTimestamp, token, contractorLogin = null) {
       token,
     );
   } catch (err) {
-    console.warn(`[poller:github] Could not fetch commits for ${repo}: ${err.message}`);
+    console.warn(`[verify:github] Could not fetch commits for ${repo}: ${err.message}`);
     return null;
   }
 
@@ -173,11 +173,11 @@ async function pollGitHub(repo, sinceTimestamp, token, contractorLogin = null) {
     } catch { /* CI unavailable — allow through */ }
 
     if (!ciPassed) {
-      console.log(`[poller:github] commit ${sha.slice(0, 7)} in ${repo} — CI did not pass, skipping`);
+      console.log(`[verify:github] commit ${sha.slice(0, 7)} in ${repo} — CI did not pass, skipping`);
       continue;
     }
 
-    console.log(`[poller:github] ✓ Qualifying work found — commit ${sha.slice(0, 7)} in ${repo}`);
+    console.log(`[verify:github] ✓ Qualifying work found — commit ${sha.slice(0, 7)} in ${repo}`);
     return {
       eventRef: `POLL#COMMIT#${sha}`,
       payload: {
@@ -219,7 +219,7 @@ async function pollJira(target, credentials) {
     const statusCategory = data.fields?.status?.statusCategory?.key;
     if (statusCategory !== 'done') return null;
 
-    console.log(`[poller:jira] ✓ Ticket ${ticketKey} is Done`);
+    console.log(`[verify:jira] ✓ Ticket ${ticketKey} is Done`);
     return { eventRef: `POLL#JIRA#${ticketKey}` };
   } catch { return null; }
 }
@@ -255,7 +255,7 @@ async function pollBitbucket(target, sinceTimestamp, credentials) {
     });
     if (!recent) return null;
 
-    console.log(`[poller:bitbucket] ✓ Recent merged PR#${recent.id} in ${workspace}/${repo}`);
+    console.log(`[verify:bitbucket] ✓ Recent merged PR#${recent.id} in ${workspace}/${repo}`);
     return { eventRef: `POLL#BB#${recent.id}` };
   } catch { return null; }
 }
@@ -292,7 +292,7 @@ async function pollFigma(target, sinceTimestamp, credentials) {
     });
     if (!approved) return null;
 
-    console.log(`[poller:figma] ✓ Approval comment found in file ${fileKey}`);
+    console.log(`[verify:figma] ✓ Approval comment found in file ${fileKey}`);
     return { eventRef: `POLL#FIGMA#${fileKey}` };
   } catch { return null; }
 }
@@ -371,7 +371,11 @@ export async function checkStream(dbRow) {
       try { contractorLogin = (await getProfile(recipient))?.github ?? null; } catch { /* no profile */ }
     }
     if (!contractorLogin) {
-      console.warn(`[verify] No GitHub handle on file for contractor ${recipient ?? '?'} — counting any author. Set the contractor's github in their profile to lock this to their work only.`);
+      // Strict: never extend when we can't tie the work to the contractor. A
+      // missing handle means we cannot prove the commits are theirs, so paying
+      // out would risk releasing funds on someone else's work. Refuse.
+      console.warn(`[verify] No GitHub handle on file for contractor ${recipient ?? '?'} — refusing to extend ${streamId.slice(0, 10)}…. Set the contractor's github in their profile.`);
+      return;
     }
 
     found = await pollGitHub(target, sinceTimestamp, token, contractorLogin);

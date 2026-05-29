@@ -4,7 +4,10 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { formatUnits } from 'viem';
 import { ArrowLeft, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
 import { useStreams } from '../../hooks/useStreams';
+import { useAuth }   from '../../context/AuthContext';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
+
+const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 import LiveBalance from '../../components/LiveBalance';
 import WithdrawModal from '../../components/WithdrawModal';
 
@@ -124,9 +127,10 @@ function TxButton({
 }
 
 export default function StreamDetail() {
-  const { id }      = useParams();
-  const navigate    = useNavigate();
-  const { address } = useAccount();
+  const { id }        = useParams();
+  const navigate      = useNavigate();
+  const { address }   = useAccount();
+  const { authFetch } = useAuth();
 
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [idCopied,     setIdCopied]     = useState(false);
@@ -157,7 +161,13 @@ export default function StreamDetail() {
     isSuccess: reclaimSuccess,
   } = useWaitForTransactionReceipt({ hash: reclaimHash });
 
-  useEffect(() => { if (reclaimSuccess) refresh?.(); }, [reclaimSuccess]);
+  useEffect(() => {
+    if (!reclaimSuccess) return;
+    refresh?.();
+    // Remove the stream from the agent registry so the engine stops watching it.
+    authFetch(`${AGENT_URL}/api/v1/stream/${id}`, { method: 'DELETE' })
+      .catch(err => console.warn('[reclaim] Failed to deregister stream:', err.message));
+  }, [reclaimSuccess]);
 
   // Cancel stream (sender, while active)
   const {
