@@ -119,6 +119,32 @@ CronStream is the right tool when:
 The positioning: Superfluid and LlamaPay are the liquidity layer. CronStream is the **compliance and performance layer** — auditable, event-driven capital for enterprise B2B.
 
 ---
+ ## The Migration Story
+
+  The real migration is not from another streaming
+  protocol. It is from traditional B2B payment rails.
+
+  Most companies paying remote contractors today do one of three things: bank transfer at month end, manual USDC
+  send after invoice, or a Superfluid stream with no
+  accountability. All three have the same problem —
+  payment is decoupled from delivery. The company pays and
+  hopes.
+
+  CronStream is the upgrade:
+
+  - Replace your end-of-month USDC transfer with a stream that pays per second and stops automatically when work stops
+  - Replace your manual invoice approval with a cryptographic gate your own tools already control
+  - Replace blind trust with mathematical guarantees
+
+  The contractor workflow does not change. They keep using
+  GitHub, Jira, Bitbucket, or Figma the same way.
+  CronStream plugs into those existing processes and
+  automates the payment release when the company's own
+  gates pass. No new tools for the contractor. No new
+  review process for the company. Just a payment layer
+  that finally reflects how work actually happens.
+
+  ---
 
 ## The Regulatory Edge
 

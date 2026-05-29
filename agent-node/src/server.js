@@ -21,6 +21,7 @@ import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registe
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
+import { startMilestonePoller } from './milestonePoller.js';
 import { generateNonce, verifySiwe, issueJwt, verifyJwt, verifyJwtOrApiKey, verifyJwtOrApiKeyOrX402 } from './auth.js';
 
 const app = express();
@@ -673,10 +674,32 @@ app.post('/api/v1/webhook/github', async (req, res, next) => { try {
       }
     } catch { /* DB unavailable — fall through with github defaults */ }
 
+    // For push events (no PR), verify CI against the actual commit SHA
+    // instead of assuming success — prevents accidental extensions on unverified pushes.
+    let ciConclusion = 'success';
+    if (event === 'push' && commitSha && verificationSource === 'github') {
+      try {
+        const ghToken = companyCredentials?.github_oauth_token ?? process.env.GITHUB_TOKEN;
+        if (ghToken) {
+          const ciRes = await fetch(
+            `https://api.github.com/repos/${repo}/actions/runs?head_sha=${commitSha}&status=completed&per_page=5`,
+            { headers: { Authorization: `Bearer ${ghToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, signal: AbortSignal.timeout(6000) },
+          );
+          if (ciRes.ok) {
+            const ciData = await ciRes.json();
+            const runs = ciData.workflow_runs ?? [];
+            if (runs.length > 0 && !runs.every(r => r.conclusion === 'success')) {
+              ciConclusion = runs.find(r => r.conclusion !== 'success')?.conclusion ?? 'failure';
+            }
+          }
+        }
+      } catch { /* CI check unavailable — allow through */ }
+    }
+
     const githubPayload = verificationSource === 'github' ? {
       repository:   payload.repository,
       pull_request: pr ?? { merged: true, user: { login: payload.pusher?.name ?? 'unknown' }, body: metaBody },
-      workflow_run: { conclusion: 'success' },
+      workflow_run: { conclusion: ciConclusion },
     } : null;
 
     // ── Verification ────────────────────────────────────────────────────────
@@ -1324,6 +1347,9 @@ try {
 startStreamListeners().catch(err =>
   console.warn('[listener] Failed to start stream listeners:', err.message),
 );
+
+// Start proactive milestone poller (non-blocking)
+startMilestonePoller();
 
 app.listen(PORT, async () => {
   console.log('═══════════════════════════════════════════════════');

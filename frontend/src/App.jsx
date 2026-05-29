@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 
@@ -21,10 +22,18 @@ import LogoLoader   from './components/LogoLoader';
 
 function ProtectedRoute({ children }) {
   const { isConnected, isConnecting, isReconnecting } = useAccount();
-  // Show 3D loader while wagmi is re-hydrating session from localStorage
-  if (isConnecting || isReconnecting) return <LogoLoader label="Connecting…" />;
-  if (!isConnected) return <Navigate to="/" replace />;
-  // Wallet connected but not yet SIWE-signed — show the sign prompt over the app
+  const [timedOut, setTimedOut] = useState(false);
+
+  // If wagmi is still reconnecting after 3s, stop waiting and let it resolve
+  useEffect(() => {
+    if (!isConnecting && !isReconnecting) { setTimedOut(false); return; }
+    const t = setTimeout(() => setTimedOut(true), 3000);
+    return () => clearTimeout(t);
+  }, [isConnecting, isReconnecting]);
+
+  const stillWaiting = (isConnecting || isReconnecting) && !timedOut;
+  if (stillWaiting) return <LogoLoader label="Connecting…" />;
+  if (!isConnected)  return <Navigate to="/" replace />;
   return (
     <>
       <SiwePrompt />

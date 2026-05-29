@@ -529,6 +529,36 @@ export async function addToWaitlist({ email, role, companyName }) {
   }
 }
 
+/**
+ * Get all streams that have a verification target — used by the milestone poller.
+ */
+export async function getAllMonitoredStreams() {
+  const db = getDb();
+  if (!db) return [];
+  const result = await db.execute(
+    `SELECT * FROM stream_registry
+     WHERE verification_target IS NOT NULL
+     AND sender IS NOT NULL
+     ORDER BY created_at DESC`,
+  );
+  return result.rows;
+}
+
+/**
+ * Get the most recent extension timestamp for a stream.
+ * Returns unix seconds or null if never extended.
+ */
+export async function getLastExtensionTime(streamId) {
+  const db = getDb();
+  if (!db) return null;
+  const result = await db.execute({
+    sql:  `SELECT created_at FROM processed_extensions
+           WHERE stream_id = ? ORDER BY created_at DESC LIMIT 1`,
+    args: [streamId],
+  });
+  return result.rows[0]?.created_at ?? null;
+}
+
 // ─── OAuth Token Storage ──────────────────────────────────────────────────────
 
 const OAUTH_COLS = {
