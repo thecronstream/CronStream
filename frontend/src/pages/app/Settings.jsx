@@ -59,7 +59,7 @@ const INTEGRATIONS = [
   { key: 'figma',     name: 'Figma',     icon: <FigmaIcon />,     bg: 'bg-purple-500/10', desc: 'Verify approved frames and published components', connectedKey: 'figma_connected' },
 ];
 
-function IntegrationsSection({ profile }) {
+function IntegrationsSection({ profile, refreshProfile }) {
   const { authFetch }  = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [connecting,   setConnecting]   = useState(null);
@@ -274,7 +274,7 @@ export default function Settings() {
 
       {/* ── Integrations ────────────────────────────────────────────────────── */}
       {tab === 'integrations' && (
-        <IntegrationsSection profile={profile} />
+        <IntegrationsSection profile={profile} refreshProfile={refreshProfile} />
       )}
 
       {/* ── Developer ───────────────────────────────────────────────────────── */}
