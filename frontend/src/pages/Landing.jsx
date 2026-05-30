@@ -57,6 +57,13 @@ export default function Landing() {
           <div className="flex items-center gap-4">
             <a href="#how-it-works" className="btn-ghost text-sm hidden sm:block">How it works</a>
             <a href="#features"     className="btn-ghost text-sm hidden sm:block">Features</a>
+            <a
+              href="/faucet"
+              className="hidden sm:flex items-center gap-1.5 text-sm text-muted hover:text-white border border-border hover:border-accent/30 px-3 py-2 rounded-xl transition-all"
+            >
+              <img src="/cronstream.png" alt="CRM" className="w-4 h-4 rounded-full object-contain" />
+              Faucet
+            </a>
             <button className="btn-primary text-sm py-2 px-5" onClick={handleLaunch}>
               {isConnected ? 'Dashboard' : 'Launch App'}
             </button>
