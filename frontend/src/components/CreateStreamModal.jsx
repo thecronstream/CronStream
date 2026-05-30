@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient, useChainId } from 'wagmi';
-import { parseUnits, formatUnits, parseAbiItem, parseAbi } from 'viem';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useChainId } from 'wagmi';
+import { parseUnits, formatUnits, parseAbiItem, parseAbi, decodeEventLog } from 'viem';
 import { getContractAddress, ROUTER_ABI } from '../lib/wagmi';
 import { registerStreamWithAgent }      from '../hooks/useAgentStatus';
 import { useCreateStream }              from '../context/CreateStreamContext';
@@ -190,7 +190,6 @@ export default function CreateStreamModal() {
   const { address }   = useAccount();
   const { profile }   = useProfile(address);
   const { authFetch, isAuthed, signIn } = useAuth();
-  const publicClient  = usePublicClient();
   const chainId       = useChainId();
   const { tokens: walletTokens, isLoading: tokensLoading } = useWalletTokens(address, chainId);
 
@@ -349,12 +348,9 @@ export default function CreateStreamModal() {
         const log = createReceipt.logs.find(l => l.address.toLowerCase() === getContractAddress(chainId).toLowerCase());
         if (!log) { setRegStatus('failed'); return; }
 
-        const decoded = publicClient.decodeEventLog({ abi: [event], data: log.data, topics: log.topics });
+        const decoded = decodeEventLog({ abi: [event], data: log.data, topics: log.topics });
         setCreatedStreamId(decoded.streamId);
 
-        // The stream now exists on-chain. Registering it with the agent is what
-        // makes it monitored - if this fails the stream is orphaned, so we track
-        // the result and offer a retry instead of silently swallowing it.
         const args = {
           streamId:                decoded.streamId,
           repo:                    form.verificationSource === 'github' ? form.verificationTarget : null,
@@ -368,8 +364,16 @@ export default function CreateStreamModal() {
           chainId,
         };
         setRegArgs(args);
-        const result = await registerStreamWithAgent(args);
-        setRegStatus(result?.success ? 'ok' : 'failed');
+
+        // Retry up to 4 times with increasing delays.
+        // The agent may be waking from a cold start or the RPC may need a moment.
+        const delays = [0, 2000, 4000, 8000];
+        for (const delay of delays) {
+          if (delay) await new Promise(r => setTimeout(r, delay));
+          const result = await registerStreamWithAgent(args);
+          if (result?.success) { setRegStatus('ok'); return; }
+        }
+        setRegStatus('failed');
       } catch (e) {
         console.warn('Post-create registration error:', e);
         setRegStatus('failed');
