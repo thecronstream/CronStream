@@ -12,7 +12,7 @@ import { useStreamEvents }          from '../../hooks/useStreamEvents';
 import { useContractReadsForChain } from '../../hooks/useContractReadsForChain';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 import { CHAIN_TOKENS }            from '../../hooks/useWalletTokens';
-import { useProfile }               from '../../hooks/useProfile';
+import { useProfile, useAddressLabel } from '../../hooks/useProfile';
 import { useDisplayCurrency }       from '../../hooks/useDisplayCurrency';
 import { useCreateStream }          from '../../context/CreateStreamContext';
 
@@ -93,6 +93,7 @@ const BS_URL = { 421614: addr => `https://arbitrum-sepolia.blockscout.com/addres
 function StreamRow({ s, chainId, navigate }) {
   const status              = getStatus(s);
   const meta                = STATUS_META[status];
+  const contractorLabel     = useAddressLabel(s.recipient);
   const { symbol: sym, decimals: dec } = tokenMeta(chainId, s.token);
 
   const ratePerDay  = parseFloat(formatUnits(s.ratePerSecond  ?? 0n, dec)) * 86400;
@@ -151,8 +152,8 @@ function StreamRow({ s, chainId, navigate }) {
       {/* Contractor + rate */}
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <p className="text-xs font-mono text-white/70 truncate">
-            {s.recipient ? short(s.recipient) : '-'}
+          <p className="text-sm font-medium truncate">
+            {contractorLabel}
           </p>
           {bsUrl && (
             <a href={bsUrl} target="_blank" rel="noopener noreferrer"

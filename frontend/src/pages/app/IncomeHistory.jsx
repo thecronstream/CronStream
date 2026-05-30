@@ -15,7 +15,7 @@ import { useStreamEvents }         from '../../hooks/useStreamEvents';
 import { useContractReadsForChain } from '../../hooks/useContractReadsForChain';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 import { CHAIN_TOKENS }            from '../../hooks/useWalletTokens';
-import { useProfile }              from '../../hooks/useProfile';
+import { useProfile, useAddressLabel } from '../../hooks/useProfile';
 import { useDisplayCurrency }      from '../../hooks/useDisplayCurrency';
 import {
   useBlockscoutWithdrawals,
@@ -65,6 +65,56 @@ function bucketLabel(i, cfg) {
 }
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
+function ClaimCard({ s, streamChainId, nowSec, onSelect }) {
+  const { symbol: sym, decimals: dec } = tokenMeta(streamChainId, s.token);
+  const ratePerDay  = parseFloat(formatUnits(s.ratePerSecond ?? 0n, dec)) * 86400;
+  const isActive    = s.streamValidUntil && Number(s.streamValidUntil) > nowSec;
+  const senderLabel = useAddressLabel(s.sender);
+
+  return (
+    <div className="card flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-accent pulse-dot' : 'bg-yellow-400'}`} />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border
+              ${isActive
+                ? 'badge-active'
+                : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'}`}>
+              {isActive ? 'Active' : 'Expired · unclaimed'}
+            </span>
+          </div>
+          <p className="text-xs text-muted font-mono">{short(s.streamId)}</p>
+          <p className="text-[10px] text-muted font-mono mt-0.5">
+            {ratePerDay.toFixed(2)} {sym ?? '?'}/day
+            {s.sender && <span className="ml-2 text-white/60 font-medium">· {senderLabel}</span>}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 shrink-0 ml-auto">
+        <div className="text-right">
+          <div className="text-[10px] text-muted uppercase tracking-widest mb-0.5">Available</div>
+          <LiveBalance
+            streamId={s.streamId}
+            ratePerSecond={s.ratePerSecond}
+            streamValidUntil={s.streamValidUntil}
+            balance={s.rawBalance ?? undefined}
+            className="text-lg text-accent font-mono"
+            showTicker={isActive}
+          />
+          {sym && <div className="text-[10px] text-muted font-mono">{sym}</div>}
+        </div>
+        <button
+          className="btn-primary text-sm py-2 px-4 shrink-0"
+          onClick={() => onSelect(s)}
+        >
+          {isActive ? 'Withdraw' : 'Claim'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ label, children, sub, accent }) {
   return (
     <div className={`stat-card ${accent ? 'border-accent/20 bg-accent/[0.03]' : ''}`}>
@@ -390,55 +440,15 @@ export default function IncomePage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {claimable.map(s => {
-              const { symbol: sym, decimals: dec } = tokenMeta(streamChainId, s.token);
-              const ratePerDay = parseFloat(formatUnits(s.ratePerSecond ?? 0n, dec)) * 86400;
-              const isActive   = s.streamValidUntil && Number(s.streamValidUntil) > nowSec;
-
-              return (
-                <div key={s.streamId} className="card flex items-center justify-between gap-4 flex-wrap">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-accent pulse-dot' : 'bg-yellow-400'}`} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border
-                          ${isActive
-                            ? 'badge-active'
-                            : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'}`}>
-                          {isActive ? 'Active' : 'Expired · unclaimed'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted font-mono">{short(s.streamId)}</p>
-                      <p className="text-[10px] text-muted font-mono mt-0.5">
-                        {ratePerDay.toFixed(2)} {sym ?? '?'}/day
-                        {s.sender && <span className="ml-2 text-muted/50">· {short(s.sender)}</span>}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 shrink-0 ml-auto">
-                    <div className="text-right">
-                      <div className="text-[10px] text-muted uppercase tracking-widest mb-0.5">Available</div>
-                      <LiveBalance
-                        streamId={s.streamId}
-                        ratePerSecond={s.ratePerSecond}
-                        streamValidUntil={s.streamValidUntil}
-                        balance={s.rawBalance ?? undefined}
-                        className="text-lg text-accent font-mono"
-                        showTicker={isActive}
-                      />
-                      {sym && <div className="text-[10px] text-muted font-mono">{sym}</div>}
-                    </div>
-                    <button
-                      className="btn-primary text-sm py-2 px-4 shrink-0"
-                      onClick={() => setSelected(s)}
-                    >
-                      {isActive ? 'Withdraw' : 'Claim'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {claimable.map(s => (
+              <ClaimCard
+                key={s.streamId}
+                s={s}
+                streamChainId={streamChainId}
+                nowSec={nowSec}
+                onSelect={setSelected}
+              />
+            ))}
           </div>
         )}
       </div>

@@ -12,7 +12,7 @@ import { useStreamEvents }          from '../../hooks/useStreamEvents';
 import { useContractReadsForChain } from '../../hooks/useContractReadsForChain';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 import { CHAIN_TOKENS }             from '../../hooks/useWalletTokens';
-import { useProfile }               from '../../hooks/useProfile';
+import { useProfile, useAddressLabel } from '../../hooks/useProfile';
 import { useDisplayCurrency }       from '../../hooks/useDisplayCurrency';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -68,7 +68,8 @@ const STATUS_ORDER = { active: 0, pending: 1, claimed: 2, expired: 3 };
 
 // ─── Stream detail modal ──────────────────────────────────────────────────────
 function StreamDetailModal({ stream, chainId, onClose }) {
-  const navigate = useNavigate();
+  const navigate    = useNavigate();
+  const senderLabel = useAddressLabel(stream?.sender);
   if (!stream) return null;
   const { symbol, decimals } = tokenMeta(chainId, stream.token);
   const status     = getStatus(stream);
@@ -101,7 +102,7 @@ function StreamDetailModal({ stream, chainId, onClose }) {
           </button>
         </div>
         <div className="px-5 py-4 flex flex-col divide-y divide-border">
-          {row('From',            short(stream.sender), true)}
+          {row('From',            senderLabel)}
           {row('Token',           symbol ?? tokenLabel(stream.token))}
           {row('Rate',            `${ratePerDay.toFixed(4)} ${symbol ?? ''}/day`, true)}
           {row('Total deposited', `${deposited.toFixed(4)} ${symbol ?? ''}`, true)}

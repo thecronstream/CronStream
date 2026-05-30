@@ -200,3 +200,20 @@ export function useProfile(address) {
 
   return { profile, saveProfile, loading, synced, hasProfile: !!profile, refreshProfile };
 }
+
+function _shortAddr(addr) {
+  return addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '-';
+}
+
+/**
+ * useAddressLabel - resolves a wallet address to a display name.
+ * Returns "@username", "Full Name", or the masked address as a fallback.
+ * Uses the same deduplicated profile cache as useProfile.
+ */
+export function useAddressLabel(address) {
+  const { profile } = useProfile(address);
+  if (!address) return '-';
+  if (profile?.username) return `@${profile.username}`;
+  if (profile?.name)     return profile.name;
+  return _shortAddr(address);
+}

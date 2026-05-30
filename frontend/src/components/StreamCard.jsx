@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { getContractAddress, ROUTER_ABI } from '../lib/wagmi';
+import { useAddressLabel } from '../hooks/useProfile';
 import LiveBalance from './LiveBalance';
 import WithdrawModal from './WithdrawModal';
 
@@ -65,6 +66,14 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
   // batchLoading=true  → fetch still in flight → show skeleton
   // batchLoading=false → fetch done; if stream is still undefined the read failed → hide card
   const loading = batchManaged ? (batchLoading ?? stream === undefined) : isLoading;
+
+  // Resolve counterpart address early so useAddressLabel is called unconditionally
+  const _counterpartAddr = stream
+    ? (role === 'company'
+        ? (stream[1] ?? stream.recipient)
+        : (stream[0] ?? stream.sender))
+    : null;
+  const counterpartLabel = useAddressLabel(_counterpartAddr);
 
   const { writeContract: doReclaim, data: reclaimHash, isPending: reclaimPending } = useWriteContract();
   const { isLoading: reclaimConfirming } = useWaitForTransactionReceipt({
@@ -158,7 +167,7 @@ export default function StreamCard({ streamId, role, onRefresh, chainId: propCha
                 ) : (
                   <span className="badge-expired shrink-0">Ended</span>
                 )}
-                <span className="text-muted text-xs font-mono truncate">{short(counterpart)}</span>
+                <span className="text-sm font-medium truncate">{counterpartLabel}</span>
               </div>
 
               {/* Balance - mobile only (inline with status) */}
