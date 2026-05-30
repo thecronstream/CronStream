@@ -721,7 +721,7 @@ app.post('/api/v1/webhook/github', async (req, res, next) => { try {
 
 // ─── Webhook auto-registration helpers ───────────────────────────────────────
 
-const AGENT_PUBLIC_URL = process.env.AGENT_PUBLIC_URL ?? 'https://api.cronstream.xyz';
+const AGENT_PUBLIC_URL = process.env.AGENT_EXTERNAL_URL ?? 'https://api.cronstream.xyz';
 
 /**
  * Register CronStream's Jira webhook on an Atlassian Cloud workspace.
