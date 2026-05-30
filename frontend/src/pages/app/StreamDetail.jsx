@@ -133,11 +133,12 @@ export default function StreamDetail() {
   const { address }   = useAccount();
   const { authFetch } = useAuth();
 
-  const [showWithdraw,  setShowWithdraw]  = useState(false);
-  const [idCopied,      setIdCopied]      = useState(false);
-  const [agentStatus,   setAgentStatus]   = useState(null); // null | 'registered' | 'unregistered'
-  const [registering,   setRegistering]   = useState(false);
-  const [manualTarget,  setManualTarget]  = useState('');
+  const [showWithdraw,          setShowWithdraw]          = useState(false);
+  const [idCopied,              setIdCopied]              = useState(false);
+  const [agentStatus,           setAgentStatus]           = useState(null); // null | 'registered' | 'unregistered'
+  const [registering,           setRegistering]           = useState(false);
+  const [manualTarget,          setManualTarget]          = useState('');
+  const [localVerificationTarget, setLocalVerificationTarget] = useState('');
 
   const { sent, received, loading, refresh } = useStreams();
   const allStreams = [...sent, ...received];
@@ -217,7 +218,7 @@ export default function StreamDetail() {
           extensionDurationSeconds: stream.periodSeconds ?? 604800,
         }),
       });
-      if (res.ok) { setAgentStatus('registered'); setManualTarget(''); }
+      if (res.ok) { setAgentStatus('registered'); setLocalVerificationTarget(target); setManualTarget(''); refresh?.(); }
       else setAgentStatus('unregistered');
     } catch {
       setAgentStatus('unregistered');
@@ -465,14 +466,14 @@ export default function StreamDetail() {
 
               {/* ── Agent registration banner ─────────────────────────────── */}
               {/* Shows when: not registered, OR registered but missing verificationTarget */}
-              {isSender && (agentStatus === 'unregistered' || (agentStatus === 'registered' && !verificationTarget)) && (
+              {isSender && (agentStatus === 'unregistered' || (agentStatus === 'registered' && !verificationTarget && !localVerificationTarget)) && (
                 <div className="mt-5 bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3 flex flex-col gap-2">
                   <span className="text-xs text-yellow-400 font-mono">
                     {agentStatus === 'unregistered'
                       ? 'Stream not monitored - agent needs the verification details to watch for work.'
                       : 'Verification target missing - agent does not know which repo to watch.'}
                   </span>
-                  {!verificationTarget && (
+                  {!verificationTarget && !localVerificationTarget && (
                     <input
                       value={manualTarget}
                       onChange={e => setManualTarget(e.target.value)}
