@@ -18,7 +18,7 @@ import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { verifyGitHubWebhook, verifyJiraWebhook, verifyBitbucketWebhook, verifyFigmaWebhook, extendFromEvent, checkStream } from './verificationEngine.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
 import { submitExtension, getAllBalances, readStreamBatch }   from './chainSubmitter.js';
-import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsByRepo, getStreamsBySource, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount, saveOAuthTokens, disconnectOAuth, saveRepoInstallation, removeRepoInstallation } from './db.js';
+import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsByRepo, getStreamsBySource, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount, saveOAuthTokens, disconnectOAuth, saveRepoInstallation, removeRepoInstallation, saveJiraWebhookIds, getProfileByJiraWebhookId } from './db.js';
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
@@ -244,7 +244,7 @@ app.get('/api/v1/auth/:provider/callback', async (req, res) => {
         // Auto-register CronStream webhook on this Jira workspace so issue updates
         // route to the agent without the user touching webhook settings.
         if (cloudId && process.env.JIRA_WEBHOOK_SECRET) {
-          registerJiraWebhook(cloudId, d.access_token).catch(err =>
+          registerJiraWebhook(cloudId, d.access_token, address).catch(err =>
             console.warn(`[oauth:atlassian] Webhook auto-register failed (non-fatal): ${err.message}`),
           );
         }
@@ -758,14 +758,20 @@ const AGENT_PUBLIC_URL = process.env.AGENT_EXTERNAL_URL ?? 'https://api.cronstre
  * Idempotent — if the webhook already exists Jira returns a 200 with the
  * existing record rather than creating a duplicate.
  */
-async function registerJiraWebhook(cloudId, accessToken) {
-  const url  = `https://api.atlassian.com/ex/jira/${cloudId}/rest/webhooks/1.0/webhook`;
+async function registerJiraWebhook(cloudId, accessToken, callerAddress = null) {
+  // /rest/api/3/webhook is the OAuth 2.0 (3LO) dynamic webhook endpoint.
+  // /rest/webhooks/1.0/webhook is Connect-only and rejects OAuth tokens.
+  // Dynamic webhooks expire after 30 days — refreshed via webhook_expiry_warning event.
+  const url  = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/webhook`;
   const body = {
-    name:   'CronStream milestone gate',
-    url:    `${AGENT_PUBLIC_URL}/api/v1/webhook/jira`,
-    events: ['jira:issue_updated'],
-    filters: { 'issue-related-events-section': '' },
-    excludeBody: false,
+    url:      `${AGENT_PUBLIC_URL}/api/v1/webhook/jira`,
+    webhooks: [
+      {
+        events:         ['jira:issue_updated'],
+        jqlFilter:      '',
+        fieldIdsFilter: ['status'],
+      },
+    ],
   };
   const res = await fetch(url, {
     method:  'POST',
@@ -778,7 +784,26 @@ async function registerJiraWebhook(cloudId, accessToken) {
     throw new Error(`Jira webhook registration failed (${res.status}): ${text}`);
   }
   const data = await res.json();
-  console.log(`[oauth:atlassian] ✓ Jira webhook registered — id=${data.id} cloudId=${cloudId}`);
+  const ids  = (data.webhookRegistrationResult ?? []).map(r => r.createdWebhookId).filter(Boolean);
+  console.log(`[oauth:atlassian] ✓ Jira webhook registered — ids=${ids.join(',')} cloudId=${cloudId}`);
+  if (callerAddress && ids.length) {
+    await saveJiraWebhookIds(callerAddress, ids).catch(() => {});
+  }
+}
+
+async function refreshJiraWebhooks(cloudId, accessToken, webhookIds) {
+  const url = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/webhook/refresh`;
+  const res = await fetch(url, {
+    method:  'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body:    JSON.stringify({ webhookIds }),
+    signal:  AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Jira webhook refresh failed (${res.status}): ${text}`);
+  }
+  console.log(`[webhook:jira] ✓ Refreshed ${webhookIds.length} webhook(s) — cloudId=${cloudId}`);
 }
 
 /**
@@ -832,6 +857,24 @@ app.post('/api/v1/webhook/jira', async (req, res, next) => { try {
   catch { return res.status(400).json({ error: 'Invalid JSON' }); }
 
   const event = payload.webhookEvent;
+
+  // Auto-refresh expiring webhooks — Jira sends this 7 days before the 30-day expiry
+  if (event === 'webhook_expiry_warning') {
+    const webhookId = payload.webhookId;
+    console.log(`[webhook:jira] Expiry warning for webhook ${webhookId} — refreshing…`);
+    try {
+      const profile = webhookId ? await getProfileByJiraWebhookId(webhookId) : null;
+      if (profile?.atlassian_access_token && profile?.atlassian_cloud_id) {
+        await refreshJiraWebhooks(profile.atlassian_cloud_id, profile.atlassian_access_token, [webhookId]);
+      } else {
+        console.warn(`[webhook:jira] No profile found for webhook ${webhookId} — cannot auto-refresh`);
+      }
+    } catch (err) {
+      console.error(`[webhook:jira] Refresh failed: ${err.message}`);
+    }
+    return res.json({ received: true, status: 'refreshed' });
+  }
+
   if (event !== 'jira:issue_updated') return res.json({ received: true, status: 'ignored', event });
 
   const hasStatusChange = payload.changelog?.items?.some(i => i.field === 'status');

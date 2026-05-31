@@ -161,6 +161,9 @@ export async function initDb() {
     // extension_seconds — records how long each verified extension actually was,
     // so the agent can enforce the weekly hours cap across multiple events
     'ALTER TABLE processed_extensions ADD COLUMN extension_seconds INTEGER',
+    // jira_webhook_ids — comma-separated dynamic webhook IDs registered for this profile.
+    // Used to refresh expiring webhooks when Jira sends webhook_expiry_warning.
+    'ALTER TABLE profiles ADD COLUMN jira_webhook_ids TEXT',
   ];
   for (const sql of migrations) {
     try { await db.execute(sql); } catch { /* column already exists */ }
@@ -519,6 +522,36 @@ export async function getProfileByUsername(username) {
   const result = await db.execute({
     sql:  'SELECT * FROM profiles WHERE username = ? LIMIT 1',
     args: [username.toLowerCase()],
+  });
+  return result.rows.length > 0 ? decryptProfile(result.rows[0]) : null;
+}
+
+/**
+ * Save Jira dynamic webhook IDs to a profile so they can be refreshed on expiry warning.
+ * Merges with any existing IDs (deduplicates).
+ */
+export async function saveJiraWebhookIds(address, newIds = []) {
+  const db = getDb();
+  if (!db || !newIds.length) return;
+  const profile    = await getProfile(address);
+  const existing   = (profile?.jira_webhook_ids ?? '').split(',').filter(Boolean);
+  const merged     = [...new Set([...existing, ...newIds.map(String)])].join(',');
+  await db.execute({
+    sql:  'UPDATE profiles SET jira_webhook_ids = ? WHERE address = ?',
+    args: [merged, address.toLowerCase()],
+  });
+}
+
+/**
+ * Find a profile whose jira_webhook_ids contains the given webhook ID.
+ * Used to locate the right access token when a webhook_expiry_warning arrives.
+ */
+export async function getProfileByJiraWebhookId(webhookId) {
+  const db = getDb();
+  if (!db) return null;
+  const result = await db.execute({
+    sql:  `SELECT * FROM profiles WHERE jira_webhook_ids LIKE ? OR jira_webhook_ids LIKE ? OR jira_webhook_ids LIKE ? OR jira_webhook_ids = ? LIMIT 1`,
+    args: [`${webhookId},%`, `%,${webhookId},%`, `%,${webhookId}`, String(webhookId)],
   });
   return result.rows.length > 0 ? decryptProfile(result.rows[0]) : null;
 }
