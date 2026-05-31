@@ -785,7 +785,12 @@ async function registerJiraWebhook(cloudId, accessToken, callerAddress = null) {
   }
   const data = await res.json();
   const ids  = (data.webhookRegistrationResult ?? []).map(r => r.createdWebhookId).filter(Boolean);
-  console.log(`[oauth:atlassian] ✓ Jira webhook registered — ids=${ids.join(',')} cloudId=${cloudId}`);
+  const maskedCloud = `${cloudId.slice(0, 8)}…`;
+  if (!ids.length) {
+    console.warn(`[oauth:atlassian] Webhook registered but no IDs returned — raw:`, JSON.stringify(data));
+  } else {
+    console.log(`[oauth:atlassian] ✓ Jira webhook registered — ids=${ids.join(',')} cloudId=${maskedCloud}`);
+  }
   if (callerAddress && ids.length) {
     await saveJiraWebhookIds(callerAddress, ids).catch(() => {});
   }
@@ -803,7 +808,7 @@ async function refreshJiraWebhooks(cloudId, accessToken, webhookIds) {
     const text = await res.text().catch(() => '');
     throw new Error(`Jira webhook refresh failed (${res.status}): ${text}`);
   }
-  console.log(`[webhook:jira] ✓ Refreshed ${webhookIds.length} webhook(s) — cloudId=${cloudId}`);
+  console.log(`[webhook:jira] ✓ Refreshed ${webhookIds.length} webhook(s) — cloudId=${cloudId.slice(0, 8)}…`);
 }
 
 /**

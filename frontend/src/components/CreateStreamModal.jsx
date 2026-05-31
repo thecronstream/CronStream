@@ -483,9 +483,9 @@ export default function CreateStreamModal() {
                     value={form.verificationTarget}
                     onChange={val => setForm(f => ({ ...f, verificationTarget: val }))}
                     isConnected={
-                      form.verificationSource === 'jira'      ? !!profile?.atlassian_access_token :
-                      form.verificationSource === 'bitbucket' ? !!profile?.bitbucket_oauth_token  :
-                      form.verificationSource === 'figma'     ? !!(profile?.figma_oauth_token ?? profile?.figma_token) :
+                      form.verificationSource === 'jira'      ? !!profile?.jira_connected       :
+                      form.verificationSource === 'bitbucket' ? !!profile?.bitbucket_connected  :
+                      form.verificationSource === 'figma'     ? !!profile?.figma_connected      :
                       false
                     }
                   />
