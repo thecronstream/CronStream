@@ -76,10 +76,6 @@ export default function Landing() {
         <StreamBackground />
         <div className="absolute inset-0 bg-gradient-to-b from-dark/60 via-dark/20 to-dark/80 pointer-events-none" />
         <div className="max-w-4xl mx-auto text-center relative">
-          <div className="inline-flex items-center gap-2 border border-accent/30 bg-accent/5 text-accent text-xs font-mono px-4 py-1.5 rounded-full mb-8">
-            <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-            Live on Arbitrum · Robinhood Chain
-          </div>
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.06] mb-6" style={{ letterSpacing: '-0.02em' }}>
             Programmable payroll
             <br />

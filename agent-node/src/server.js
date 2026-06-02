@@ -768,7 +768,7 @@ async function registerJiraWebhook(cloudId, accessToken, callerAddress = null) {
     webhooks: [
       {
         events:         ['jira:issue_updated'],
-        jqlFilter:      'created >= "2000-01-01"',
+        jqlFilter:      'project != "CRONSTREAM_PLACEHOLDER_XYZ"',
         fieldIdsFilter: ['status'],
       },
     ],

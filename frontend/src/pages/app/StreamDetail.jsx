@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
-import { ArrowLeft, Copy, Check, ExternalLink, Loader2, GitMerge, Layers, PenTool, Zap } from 'lucide-react';
+import { ArrowLeft, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
 import { useStreams } from '../../hooks/useStreams';
 import { useAuth }   from '../../context/AuthContext';
 import { useAddressLabel } from '../../hooks/useProfile';
@@ -27,13 +27,56 @@ const BLOCKSCOUT_TX = {
   46630:  tx => `https://explorer.robinhood.com/tx/${tx}`,
 };
 
+const PLATFORM_ICONS = {
+  github: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-white/80">
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+    </svg>
+  ),
+  jira: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <defs>
+        <linearGradient id="jira-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#2684FF"/>
+          <stop offset="100%" stopColor="#0052CC"/>
+        </linearGradient>
+      </defs>
+      <path fill="url(#jira-grad)" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.218 5.218 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.004-1.005zm5.723-5.756H5.757a5.218 5.218 0 0 0 5.233 5.215h2.13v2.057A5.218 5.218 0 0 0 18.298 18.3V6.762a1.005 1.005 0 0 0-1.004-1.005zm5.701-5.757H11.48a5.218 5.218 0 0 0 5.232 5.215h2.13V7.272A5.218 5.218 0 0 0 24 12.518V1.005A1.005 1.005 0 0 0 22.995 0z"/>
+    </svg>
+  ),
+  bitbucket: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <defs>
+        <linearGradient id="bb-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#2684FF"/>
+          <stop offset="100%" stopColor="#0052CC"/>
+        </linearGradient>
+      </defs>
+      <path fill="url(#bb-grad)" d="M.778 1.213a.768.768 0 0 0-.768.892l3.263 19.81c.084.5.515.868 1.022.873H19.95a.772.772 0 0 0 .77-.646l3.27-20.03a.768.768 0 0 0-.768-.891zM14.52 15.53H9.522L8.17 8.466h7.561z"/>
+    </svg>
+  ),
+  figma: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M15.852 8.981h-4.588V0h4.588c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.491-4.49 4.491zM12.735 7.51h3.117c1.665 0 3.019-1.355 3.019-3.019s-1.354-3.019-3.019-3.019h-3.117V7.51zm0 1.471H8.148c-2.476 0-4.49-2.014-4.49-4.49S5.672 0 8.148 0h4.588v8.981zm-4.587-7.51c-1.665 0-3.019 1.355-3.019 3.019s1.354 3.019 3.019 3.019h3.117V1.471H8.148zm4.587 15.019H8.148c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h4.588v8.98zM8.148 8.981c-1.665 0-3.019 1.355-3.019 3.019s1.354 3.019 3.019 3.019h3.117V8.981H8.148zM8.172 24c-2.489 0-4.515-2.014-4.515-4.49s2.026-4.49 4.515-4.49c2.489 0 4.515 2.014 4.515 4.49S10.661 24 8.172 24zm0-7.509c-1.666 0-3.044 1.355-3.044 3.019s1.378 3.019 3.044 3.019c1.666 0 3.044-1.355 3.044-3.019s-1.378-3.019-3.044-3.019zm7.703.49h-4.588v-1.471h4.588c1.665 0 3.019-1.355 3.019-3.019s-1.354-3.019-3.019-3.019h-4.588V8.001h4.588c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.49-4.49 4.49z"/>
+    </svg>
+  ),
+  default: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-accent/70">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+  ),
+};
+
 function parseEventRef(eventRef) {
-  if (!eventRef) return { label: 'Extension', sub: null, Icon: Zap };
-  if (eventRef.startsWith('GH#PR#'))       return { label: `PR #${eventRef.replace('GH#PR#', '')}`, sub: 'GitHub', Icon: GitMerge };
-  if (eventRef.startsWith('JIRA#ISSUE#'))  return { label: eventRef.replace('JIRA#ISSUE#', ''), sub: 'Jira',   Icon: Layers };
-  if (eventRef.startsWith('BB#PR#'))       return { label: `PR #${eventRef.replace('BB#PR#', '')}`, sub: 'Bitbucket', Icon: GitMerge };
-  if (eventRef.startsWith('FIGMA#COMMENT#')) return { label: 'File comment', sub: 'Figma', Icon: PenTool };
-  return { label: eventRef, sub: null, Icon: Zap };
+  if (!eventRef) return { label: 'Extension', sub: null, platform: 'default' };
+  if (eventRef.startsWith('GH#PR#') || eventRef.startsWith('POLL#PR#')) {
+    const num = eventRef.replace('GH#PR#', '').replace('POLL#PR#', '');
+    return { label: `PR #${num}`, sub: 'GitHub', platform: 'github' };
+  }
+  if (eventRef.startsWith('JIRA#ISSUE#'))    return { label: eventRef.replace('JIRA#ISSUE#', ''),  sub: 'Jira',      platform: 'jira' };
+  if (eventRef.startsWith('BB#PR#'))         return { label: `PR #${eventRef.replace('BB#PR#', '')}`, sub: 'Bitbucket', platform: 'bitbucket' };
+  if (eventRef.startsWith('FIGMA#COMMENT#')) return { label: 'File comment',                         sub: 'Figma',     platform: 'figma' };
+  return { label: eventRef, sub: null, platform: 'default' };
 }
 
 function fmtDuration(secs) {
@@ -745,7 +788,7 @@ export default function StreamDetail() {
           ) : (
             <div className="flex flex-col divide-y divide-border">
               {extensions.map((ext, i) => {
-                const { label, sub, Icon } = parseEventRef(ext.event_ref);
+                const { label, sub, platform } = parseEventRef(ext.event_ref);
                 const duration = fmtDuration(ext.extension_seconds);
                 const txUrl = ext.tx_hash && ext.chain_id && BLOCKSCOUT_TX[ext.chain_id]
                   ? BLOCKSCOUT_TX[ext.chain_id](ext.tx_hash)
@@ -756,7 +799,7 @@ export default function StreamDetail() {
                 return (
                   <div key={i} className="flex items-center gap-3 py-3 min-w-0">
                     <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-                      <Icon size={13} className="text-accent" />
+                      {PLATFORM_ICONS[platform]}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
