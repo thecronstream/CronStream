@@ -24,6 +24,49 @@
 
 import { Router }                       from 'express';
 import { paymentMiddleware }            from 'x402-express';
+
+// ─── Per-wallet rate limiter ──────────────────────────────────────────────────
+// Sliding window: max LIMIT calls per WINDOW_MS per payer wallet.
+// Falls back to IP when no X-PAYMENT header is present (e.g. probe requests).
+const RATE_LIMIT  = parseInt(process.env.X402_RATE_LIMIT  ?? '60',    10); // calls per window
+const WINDOW_MS   = parseInt(process.env.X402_WINDOW_MS   ?? '60000', 10); // 1 minute
+
+const _rateBuckets = new Map(); // key → [timestamp, ...]
+
+function extractPayerKey(req) {
+  const payment = req.headers['x-payment'];
+  if (payment) {
+    try {
+      const decoded = JSON.parse(Buffer.from(payment, 'base64').toString('utf8'));
+      const from = decoded?.payload?.authorization?.from ?? decoded?.payload?.from;
+      if (from) return from.toLowerCase();
+    } catch { /* fall through to IP */ }
+  }
+  return req.ip ?? 'unknown';
+}
+
+function x402RateLimit(req, res, next) {
+  const key = extractPayerKey(req);
+  const now = Date.now();
+  const timestamps = (_rateBuckets.get(key) ?? []).filter(t => now - t < WINDOW_MS);
+  if (timestamps.length >= RATE_LIMIT) {
+    return res.status(429).json({
+      error:      'Rate limit exceeded',
+      limit:      RATE_LIMIT,
+      windowMs:   WINDOW_MS,
+      retryAfter: Math.ceil((timestamps[0] + WINDOW_MS - now) / 1000),
+    });
+  }
+  timestamps.push(now);
+  _rateBuckets.set(key, timestamps);
+  // Prune old entries every ~500 requests to avoid memory growth
+  if (_rateBuckets.size > 500) {
+    for (const [k, ts] of _rateBuckets) {
+      if (ts.every(t => now - t >= WINDOW_MS)) _rateBuckets.delete(k);
+    }
+  }
+  next();
+}
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
 import { signExtensionVoucher,
          getSignerAddress }             from './agentSigner.js';
@@ -82,6 +125,9 @@ router.use(
     : (_req, _res, next) => next(),
 );
 
+// Rate limiter runs after payment verification — only paying wallets are counted
+router.use(x402RateLimit);
+
 // ─── GET /api/public/info ─────────────────────────────────────────────────────
 // Free — no payment required. Describes the API so callers know what to expect.
 
@@ -98,6 +144,11 @@ router.get('/info', (_req, res) => {
       'GET  /api/public/balance/:id':              '$0.01 USDC per call',
       'GET  /api/public/streams/company/:address': '$0.05 USDC per call',
       'GET  /api/public/streams/contractor/:address': '$0.05 USDC per call',
+    },
+    rateLimit: {
+      limit:    RATE_LIMIT,
+      windowMs: WINDOW_MS,
+      key:      'per payer wallet address',
     },
     usage:
       'Include a valid X-PAYMENT header with each paid request. ' +
