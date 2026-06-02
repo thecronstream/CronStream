@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
-import { ArrowLeft, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowLeft, Copy, Check, ExternalLink, Loader2, GitMerge, Layers, PenTool, Zap } from 'lucide-react';
 import { useStreams } from '../../hooks/useStreams';
 import { useAuth }   from '../../context/AuthContext';
 import { useAddressLabel } from '../../hooks/useProfile';
@@ -21,6 +21,30 @@ const TOKEN_LABELS = {
 const BLOCKSCOUT_ADDR = {
   421614: addr => `https://arbitrum-sepolia.blockscout.com/address/${addr}`,
 };
+
+const BLOCKSCOUT_TX = {
+  421614: tx => `https://arbitrum-sepolia.blockscout.com/tx/${tx}`,
+  46630:  tx => `https://explorer.robinhood.com/tx/${tx}`,
+};
+
+function parseEventRef(eventRef) {
+  if (!eventRef) return { label: 'Extension', sub: null, Icon: Zap };
+  if (eventRef.startsWith('GH#PR#'))       return { label: `PR #${eventRef.replace('GH#PR#', '')}`, sub: 'GitHub', Icon: GitMerge };
+  if (eventRef.startsWith('JIRA#ISSUE#'))  return { label: eventRef.replace('JIRA#ISSUE#', ''), sub: 'Jira',   Icon: Layers };
+  if (eventRef.startsWith('BB#PR#'))       return { label: `PR #${eventRef.replace('BB#PR#', '')}`, sub: 'Bitbucket', Icon: GitMerge };
+  if (eventRef.startsWith('FIGMA#COMMENT#')) return { label: 'File comment', sub: 'Figma', Icon: PenTool };
+  return { label: eventRef, sub: null, Icon: Zap };
+}
+
+function fmtDuration(secs) {
+  if (!secs) return null;
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `+${d}d${h > 0 ? ` ${h}h` : ''}`;
+  if (h > 0) return `+${h}h${m > 0 ? ` ${m}m` : ''}`;
+  return `+${m}m`;
+}
 
 function short(addr, len = 6) {
   return addr ? `${addr.slice(0, len)}…${addr.slice(-4)}` : '-';
@@ -135,6 +159,7 @@ export default function StreamDetail() {
   const [showWithdraw,          setShowWithdraw]          = useState(false);
   const [idCopied,              setIdCopied]              = useState(false);
   const [agentStatus,           setAgentStatus]           = useState(null); // null | 'registered' | 'unregistered'
+  const [extensions,            setExtensions]            = useState(null);  // null = loading, [] = none
   const [registering,           setRegistering]           = useState(false);
   const [manualTarget,          setManualTarget]          = useState('');
   const [localVerificationTarget, setLocalVerificationTarget] = useState('');
@@ -193,14 +218,16 @@ export default function StreamDetail() {
 
   useEffect(() => { if (cancelSuccess) refresh?.(); }, [cancelSuccess]);
 
-  // Check if stream is registered with the agent. Runs once when stream loads.
-  // Shows a register button to the sender if it isn't.
+  // Fetch agent-side status + full extension history.
   useEffect(() => {
     if (!stream || !id) return;
     fetch(`${AGENT_URL}/api/v1/stream-status/${id}`)
       .then(r => r.ok ? r.json() : null)
-      .then(data => setAgentStatus(data?.stream ? 'registered' : 'unregistered'))
-      .catch(() => setAgentStatus(null));
+      .then(data => {
+        setAgentStatus(data?.stream ? 'registered' : 'unregistered');
+        setExtensions(Array.isArray(data?.extensions) ? data.extensions : []);
+      })
+      .catch(() => { setAgentStatus(null); setExtensions([]); });
   }, [id, stream?.streamId]);
 
   async function registerWithAgent() {
@@ -685,6 +712,68 @@ export default function StreamDetail() {
               />
             ))}
           </div>
+        </div>
+
+        {/* ── Activity feed ─────────────────────────────────────────────────── */}
+        <div className="card mt-4">
+          <div className="flex items-center justify-between pb-3 border-b border-border mb-1">
+            <p className="text-[10px] text-muted uppercase tracking-widest">Extension activity</p>
+            {extensions !== null && extensions.length > 0 && (
+              <span className="text-[10px] font-mono text-muted/60">{extensions.length} event{extensions.length !== 1 ? 's' : ''}</span>
+            )}
+          </div>
+
+          {extensions === null ? (
+            <div className="flex items-center gap-2 py-6 px-1">
+              <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="text-xs text-muted">Loading activity…</span>
+            </div>
+          ) : extensions.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted">No extensions yet.</p>
+              <p className="text-xs text-muted/50 mt-1 font-mono">
+                {isPending
+                  ? 'Submit verified work to trigger the first extension.'
+                  : 'Extensions appear here as work is verified.'}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col divide-y divide-border">
+              {extensions.map((ext, i) => {
+                const { label, sub, Icon } = parseEventRef(ext.event_ref);
+                const duration = fmtDuration(ext.extension_seconds);
+                const txUrl = ext.tx_hash && ext.chain_id && BLOCKSCOUT_TX[ext.chain_id]
+                  ? BLOCKSCOUT_TX[ext.chain_id](ext.tx_hash)
+                  : null;
+                const ts = ext.created_at
+                  ? new Date(ext.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  : null;
+                return (
+                  <div key={i} className="flex items-center gap-3 py-3 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                      <Icon size={13} className="text-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-mono text-white truncate">{label}</span>
+                        {sub && <span className="text-[10px] text-muted/60 font-mono">{sub}</span>}
+                        {duration && (
+                          <span className="text-[10px] font-mono text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded-md">{duration}</span>
+                        )}
+                      </div>
+                      {ts && <p className="text-[10px] text-muted/50 font-mono mt-0.5">{ts}</p>}
+                    </div>
+                    {txUrl && (
+                      <a href={txUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-muted/40 hover:text-accent transition-colors shrink-0 flex items-center gap-1 text-[10px] font-mono">
+                        tx <ExternalLink size={9} />
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
