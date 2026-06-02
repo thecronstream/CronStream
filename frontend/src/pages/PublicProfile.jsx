@@ -23,7 +23,8 @@ export default function PublicProfile() {
   const { openModal }   = useCreateStream();
   const { isConnected, isConnecting, isReconnecting } = useAccount();
 
-  const [status, setStatus] = useState('idle');
+  const [status,      setStatus]      = useState('idle');
+  const [contractor,  setContractor]  = useState(null);
 
   // Only fetch once wallet is connected - never expose contractor info to unauthenticated visitors
   useEffect(() => {
@@ -38,6 +39,7 @@ export default function PublicProfile() {
       })
       .then(data => {
         if (!data) return;
+        setContractor(data.profile);
         setStatus('found');
         openModal({ prefill: {
           recipient:  data.profile.address,
@@ -48,6 +50,16 @@ export default function PublicProfile() {
       })
       .catch(() => setStatus('error'));
   }, [isConnected, username]);
+
+  function startStream() {
+    if (!contractor) return;
+    openModal({ prefill: {
+      recipient:  contractor.address,
+      name:       contractor.name       ?? null,
+      github:     contractor.github     ?? null,
+      avatar_url: contractor.avatar_url ?? null,
+    }});
+  }
 
   const resuming = isConnecting || isReconnecting;
 
@@ -212,11 +224,69 @@ export default function PublicProfile() {
             </div>
           )}
 
-          {/* ── Connected: modal open - fallback if dismissed ── */}
-          {isConnected && status === 'found' && (
-            <div className="card w-full text-center py-8 flex flex-col items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent text-lg">✓</div>
-              <p className="font-semibold text-sm">Authorized - complete setup in the modal</p>
+          {/* ── Connected: contractor card ── */}
+          {isConnected && status === 'found' && contractor && (
+            <div className="w-full flex flex-col gap-3">
+              {/* Profile card */}
+              <div className="rounded-2xl border border-border bg-surface overflow-hidden">
+                <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
+                <div className="px-5 py-5 flex items-center gap-4">
+                  {contractor.avatar_url ? (
+                    <img src={contractor.avatar_url} alt={contractor.name ?? username}
+                      className="w-12 h-12 rounded-xl object-cover border border-border shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                      <span className="text-accent font-bold text-lg">
+                        {(contractor.name ?? username ?? '?')[0].toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white text-sm truncate">
+                      {contractor.name ?? username}
+                    </p>
+                    {contractor.github && (
+                      <p className="text-xs text-muted font-mono truncate mt-0.5">@{contractor.github}</p>
+                    )}
+                    {contractor.role && (
+                      <span className="inline-block mt-1.5 text-[10px] font-mono px-2 py-0.5 rounded-full border border-accent/20 text-accent/70 bg-accent/5">
+                        {contractor.role}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Platform connections */}
+                {(contractor.github_connected || contractor.jira_connected || contractor.bitbucket_connected || contractor.figma_connected) && (
+                  <div className="px-5 py-3 border-t border-border flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] text-muted uppercase tracking-wider mr-1">Works via</span>
+                    {contractor.github_connected    && <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/5 border border-border text-muted/80">GitHub</span>}
+                    {contractor.jira_connected      && <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/5 border border-border text-muted/80">Jira</span>}
+                    {contractor.bitbucket_connected && <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/5 border border-border text-muted/80">Bitbucket</span>}
+                    {contractor.figma_connected     && <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/5 border border-border text-muted/80">Figma</span>}
+                  </div>
+                )}
+
+                {/* Links */}
+                {(contractor.website || contractor.twitter || contractor.linkedin) && (
+                  <div className="px-5 py-3 border-t border-border flex items-center gap-3">
+                    {contractor.website  && <a href={contractor.website}  target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent/70 hover:text-accent font-mono underline underline-offset-2 transition-colors truncate">website</a>}
+                    {contractor.twitter  && <a href={`https://x.com/${contractor.twitter}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent/70 hover:text-accent font-mono underline underline-offset-2 transition-colors">@{contractor.twitter}</a>}
+                    {contractor.linkedin && <a href={contractor.linkedin} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent/70 hover:text-accent font-mono underline underline-offset-2 transition-colors">LinkedIn</a>}
+                  </div>
+                )}
+              </div>
+
+              {/* CTA */}
+              <button
+                onClick={startStream}
+                className="btn-primary w-full py-3 text-sm font-semibold"
+              >
+                Start stream to {contractor.name ?? username} →
+              </button>
+              <p className="text-center text-[10px] text-muted/40 font-mono">
+                Funds flow as work is verified on-chain
+              </p>
             </div>
           )}
 

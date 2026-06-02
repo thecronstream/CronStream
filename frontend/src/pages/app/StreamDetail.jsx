@@ -399,6 +399,10 @@ export default function StreamDetail() {
   const chainName = CHAIN_NAMES[streamChainId] ?? `Chain ${streamChainId}`;
 
   // Fix 3: Stream ID removed from detail table - already shown in header chip
+  const srcLabel = verificationSource
+    ? verificationSource.charAt(0).toUpperCase() + verificationSource.slice(1)
+    : 'GitHub';
+
   const detailRows = [
     { label: 'From',            value: senderLabel,    copy: sender,    chainId: streamChainId },
     { label: 'To',              value: recipientLabel, copy: recipient, chainId: streamChainId },
@@ -407,7 +411,8 @@ export default function StreamDetail() {
     { label: 'Per second',      value: `${formatUnits(ratePerSecond ?? 0n, 6)} ${tokenLabel}`, mono: true },
     { label: 'Total deposited', value: `${parseFloat(formatUnits(totalDeposited ?? 0n, 6)).toFixed(4)} ${tokenLabel}`, mono: true },
     { label: 'Total withdrawn', value: `${parseFloat(formatUnits(totalWithdrawn ?? 0n, 6)).toFixed(4)} ${tokenLabel}`, mono: true },
-    { label: 'Created',          value: startTime > 0n ? new Date(Number(startTime) * 1000).toLocaleString() : '-' },
+    { label: 'Verified via',    value: verificationTarget ? `${srcLabel} · ${verificationTarget}` : srcLabel, mono: true },
+    { label: 'Created',         value: startTime > 0n ? new Date(Number(startTime) * 1000).toLocaleString() : '-' },
     { label: 'Expires',         value: isPending ? 'No active period yet' : streamValidUntil > 0n ? new Date(Number(streamValidUntil) * 1000).toLocaleString() : '-' },
     { label: 'Chain',           value: chainName, mono: true },
   ];
