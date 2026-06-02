@@ -59,7 +59,9 @@ async function startChainListener(chainId, config) {
   // ── Catch-up: replay missed events since last restart ──────────────────────
   // Try progressively smaller block ranges to handle free-tier RPC limits.
   const latestBlock = await provider.getBlockNumber();
-  const RANGES = [10_000, 1_000, 100, 10]; // shrink until the RPC accepts it
+  const RANGES = config.maxBlocksPerPoll <= 10
+    ? [10]
+    : [10_000, 1_000, 100, 10]; // shrink until the RPC accepts it
 
   let caught = false;
   for (const range of RANGES) {
