@@ -177,7 +177,7 @@ app.post('/api/v1/auth/:provider/initiate', verifyJwt, (req, res) => {
       break;
     case 'figma':
       if (!process.env.FIGMA_CLIENT_ID) return res.status(503).json({ error: 'Figma OAuth not configured on this server' });
-      redirectUrl = `https://www.figma.com/oauth?client_id=${process.env.FIGMA_CLIENT_ID}&redirect_uri=${encodeURIComponent(cb)}&scope=files:read,comments:read,webhooks:write&state=${state}&response_type=code`;
+      redirectUrl = `https://www.figma.com/oauth?client_id=${process.env.FIGMA_CLIENT_ID}&redirect_uri=${encodeURIComponent(cb)}&scope=files:read,comments:read,webhooks:read&state=${state}&response_type=code`;
       break;
     default:
       return res.status(400).json({ error: `Unknown provider: ${provider}` });
