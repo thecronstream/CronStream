@@ -215,9 +215,19 @@ app.get('/api/v1/auth/:provider/callback', async (req, res) => {
         // GitHub App installation callback — receives installation_id, not a code.
         const installationId = req.query.installation_id;
         if (!installationId) throw new Error('No installation_id received from GitHub');
-        // Save installation ID — used to generate installation access tokens for API calls
         const db = getDb();
         if (db) {
+          // Clear old repo installations for this address before saving the new one
+          // so the repo picker never shows repos from a previously linked account.
+          const existing = await getProfile(address);
+          const oldInstallId = existing?.github_installation_id;
+          if (oldInstallId && oldInstallId !== String(installationId)) {
+            await db.execute({
+              sql:  `DELETE FROM repo_installations WHERE installation_id = ?`,
+              args: [oldInstallId],
+            });
+            console.log(`[oauth:github] Cleared old repo_installations for installationId=${oldInstallId}`);
+          }
           await db.execute({
             sql:  `UPDATE profiles SET github_installation_id = ?, updated_at = unixepoch() WHERE address = ?`,
             args: [String(installationId), address.toLowerCase()],
@@ -302,6 +312,14 @@ app.get('/api/v1/auth/:provider/callback', async (req, res) => {
 app.delete('/api/v1/auth/:provider', verifyJwt, async (req, res) => {
   const { provider } = req.params;
   try {
+    if (provider === 'github') {
+      const profile = await getProfile(req.callerAddress);
+      const installId = profile?.github_installation_id;
+      if (installId) {
+        const db = getDb();
+        await db.execute({ sql: 'DELETE FROM repo_installations WHERE installation_id = ?', args: [installId] });
+      }
+    }
     await disconnectOAuth(req.callerAddress, provider);
     res.json({ success: true, provider });
   } catch (err) {
