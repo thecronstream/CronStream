@@ -106,11 +106,9 @@ npm run dev            # http://localhost:5173
 
 ---
 
-## Contributor License Agreement
+## License
 
-By submitting a pull request you agree to the [CronStream CLA](https://cla-assistant.io/16navigabraham/CronStream), which assigns ownership of contributed code to CronStream.
-
-[![CLA assistant](https://cla-assistant.io/readme/badge/16navigabraham/CronStream)](https://cla-assistant.io/16navigabraham/CronStream)
+All contributions are made under the [Business Source License 1.1](./LICENSE). By submitting a pull request you agree that your contribution will be licensed under BUSL-1.1.
 
 ---
 
