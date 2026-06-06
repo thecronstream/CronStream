@@ -87,3 +87,19 @@ jobs:
       - run: npm ci
       - name: build
         run: npm run build
+
+  # ── Single required check: passes unless a job that actually ran failed ──────
+  # Require THIS check in branch protection (not the path-filtered jobs above,
+  # which report "skipped" and would otherwise deadlock a PR forever).
+  ci:
+    needs: [contracts, agent, frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no job failed
+        run: |
+          if echo '${{ join(needs.*.result, ',') }}' | grep -qE 'failure|cancelled'; then
+            echo "A CI job failed: ${{ join(needs.*.result, ',') }}"
+            exit 1
+          fi
+          echo "CI passed (results: ${{ join(needs.*.result, ',') }})"
