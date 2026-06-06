@@ -203,6 +203,10 @@ export default function CreateStreamModal() {
 
   // Cached create args so the approve→create chain never reads stale closure values
   const createArgsRef = useRef(null);
+  // Tracks whether a click started ON the backdrop. Prevents accidental close
+  // when a drag begins inside the panel (e.g. selecting input text) and the
+  // mouse is released over the backdrop.
+  const backdropDownRef = useRef(false);
 
   const VERIFICATION_SOURCES = [
     { key: 'github',    label: 'GitHub',    placeholder: 'owner/repo',                         hint: 'Merged PRs + passing CI' },
@@ -421,7 +425,16 @@ export default function CreateStreamModal() {
   const canCreate = canStep0 && canStep1 && !!chainId && windowSeconds > 0n;
 
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={e => { backdropDownRef.current = e.target === e.currentTarget; }}
+      onClick={e => {
+        // Only close when BOTH press and release happened on the backdrop —
+        // never on a drag that merely ended there.
+        if (e.target === e.currentTarget && backdropDownRef.current) handleClose();
+        backdropDownRef.current = false;
+      }}
+    >
       <div className="modal-panel w-full sm:max-w-lg max-h-[96vh] sm:max-h-[92vh] overflow-y-auto relative">
 
         {/* Header */}
