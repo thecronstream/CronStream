@@ -854,7 +854,7 @@ export default function StreamDetail() {
                   ? BLOCKSCOUT_TX[ext.chain_id](ext.tx_hash)
                   : null;
                 const ts = ext.created_at
-                  ? new Date(ext.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  ? new Date(ext.created_at * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                   : null;
                 return (
                   <div key={i} className="flex items-center gap-3 py-3 min-w-0">
