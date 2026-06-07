@@ -24,12 +24,16 @@ import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
 import { generateNonce, verifySiwe, issueJwt, verifyJwt, verifyJwtOrApiKey, verifyJwtOrApiKeyOrX402 } from './auth.js';
 import { getInstallationToken } from './githubApp.js';
+import { scannerBlock } from './scannerBlock.js';
 
 const app = express();
 
 // Render (and most cloud hosts) sit behind a reverse proxy that sets X-Forwarded-For.
 // Tell Express to trust the first proxy hop so rate-limit reads the real client IP.
 app.set('trust proxy', 1);
+
+// Drop and ban automated vulnerability scanners before anything else runs.
+app.use(scannerBlock);
 
 // ─── Security headers (Helmet) ────────────────────────────────────────────────
 // This is a public API server — disable policies that block cross-origin reads.
