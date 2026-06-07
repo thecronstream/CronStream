@@ -212,13 +212,23 @@ export async function recordExtension({
   const db = getDb();
   if (!db) return;
   const ref = eventRef ?? (prNumber != null ? `PR#${prNumber}` : null);
+  // pr_number is a legacy NOT NULL column; event_ref is now the real identity.
+  // Webhook sources (Jira/Bitbucket/Figma and the GitHub extendFromEvent path)
+  // pass prNumber=null, which would violate NOT NULL and get silently dropped by
+  // INSERT OR IGNORE. Derive a non-null, distinct value: parse the number out of
+  // the event ref (e.g. GH#PR#5 -> 5), else fall back to a timestamp.
+  let prNum = prNumber;
+  if (prNum == null) {
+    const m = (ref ?? '').match(/(\d+)/);
+    prNum = m ? Number(m[1]) : Math.floor(Date.now() / 1000);
+  }
   await db.execute({
     sql: `INSERT OR IGNORE INTO processed_extensions
             (stream_id, repository, pr_number, event_ref, chain_id, chain_name,
              tx_hash, block_number, gas_used, voucher_expiry, extension_seconds)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
-      streamId, repository, prNumber ?? null, ref,
+      streamId, repository, prNum, ref,
       chainId, chainName,
       txHash ?? null, blockNumber ?? null, gasUsed ?? null, voucherExpiry ?? null,
       extensionSeconds ?? null,
