@@ -18,12 +18,11 @@ import { getLastExtensionTime, isAlreadyProcessed, recordExtension, getProfile, 
 import { readStreamBatch, submitExtension } from './chainSubmitter.js';
 import { signExtensionVoucher } from './agentSigner.js';
 import { getInstallationToken } from './githubApp.js';
+import { isQualifyingCodeFile } from './codeDiff.js';
 
 const WARN_WINDOW_S     = 48 * 3600;        // top up streams expiring within 48h
 const FROZEN_LOOKBACK_S = 7 * 24 * 3600;   // ignore streams frozen more than 7 days ago
 const GITHUB_API_BASE   = 'https://api.github.com';
-const EXCLUDED_EXTS     = ['.md', '.txt', '.mdx', '.rst'];
-const SOURCE_PREFIXES   = ['src/', 'contracts/'];
 const VOUCHER_TTL_S     = Number(process.env.VOUCHER_TTL_SECONDS ?? 3600);
 
 // ─── GitHub helpers ───────────────────────────────────────────────────────────
@@ -45,11 +44,7 @@ async function ghGet(path, token) {
 }
 
 function hasQualifyingDiff(files) {
-  return files.some(f =>
-    f.additions > 0 &&
-    !EXCLUDED_EXTS.some(ext => f.filename.toLowerCase().endsWith(ext)) &&
-    SOURCE_PREFIXES.some(p => f.filename.includes(`/${p}`) || f.filename.startsWith(p)),
-  );
+  return files.some(f => f.additions > 0 && isQualifyingCodeFile(f.filename));
 }
 
 // ─── GitHub webhook verification ─────────────────────────────────────────────
@@ -176,14 +171,11 @@ export function verifyJiraWebhook(payload, contractorProfile) {
 
 // ─── Bitbucket webhook verification ──────────────────────────────────────────
 
-const BB_CODE_PATH_RE  = /^(src|contracts|lib|packages)\//;
-const BB_IGNORE_EXTS   = new Set(['.md', '.txt', '.json', '.lock', '.yml', '.yaml', '.mdx']);
-
 /**
  * Verify a Bitbucket `pullrequest:fulfilled` webhook payload.
  * 3-layer gate:
  *   1. PR author matches the contractor's registered Bitbucket username / UUID
- *   2. PR contains real code changes in /src or /contracts (checked via diffstat API)
+ *   2. PR contains real code changes (any non-doc/config file, checked via diffstat API)
  *   3. Latest pipeline on the merge commit passed
  *
  * @param {object} payload    - raw Bitbucket webhook body
@@ -232,11 +224,7 @@ export async function verifyBitbucketWebhook(payload, companyCredentials, contra
     if (!diffRes.ok) return { ok: false, reason: `Bitbucket diffstat API returned ${diffRes.status}` };
     const diffData = await diffRes.json();
     const files    = diffData.values ?? [];
-    const hasCode  = files.some(f => {
-      const path = f.new?.path ?? f.old?.path ?? '';
-      const ext  = path.includes('.') ? '.' + path.split('.').pop() : '';
-      return BB_CODE_PATH_RE.test(path) && !BB_IGNORE_EXTS.has(ext);
-    });
+    const hasCode  = files.some(f => isQualifyingCodeFile(f.new?.path ?? f.old?.path ?? ''));
     if (!hasCode) {
       return { ok: false, reason: `No qualifying code changes across ${files.length} file(s)` };
     }

@@ -3,7 +3,7 @@
  * Multi-source milestone verification for the CronStream agent node.
  *
  * Sources:
- *   github    — 3 layers: PR merged + CI green + code diff in /src or /contracts
+ *   github    — 3 layers: PR merged + CI green + real code diff (any non-doc file)
  *   jira      — ticket statusCategory is 'done'
  *   bitbucket — PR merged + optional pipeline success
  *   figma     — approval comment (approved / lgtm / ✅) within 30 days
@@ -13,6 +13,8 @@
  * each platform's API on behalf of the company — no CronStream-level
  * platform API keys required.
  */
+
+import { isQualifyingCodeFile } from './codeDiff.js';
 
 // ─── Custom Error ─────────────────────────────────────────────────────────────
 
@@ -33,8 +35,6 @@ export class VerificationError extends Error {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GITHUB_API_BASE      = 'https://api.github.com';
-const EXCLUDED_EXTENSIONS  = ['.md', '.txt', '.mdx', '.rst'];
-const SOURCE_PATH_PREFIXES = ['src/', 'contracts/'];
 
 async function githubGet(path, token) {
   const resolvedToken = token ?? process.env.GITHUB_TOKEN;
@@ -85,19 +85,14 @@ async function checkCodeDiff(owner, repo, prNumber, token) {
     page++;
   }
 
-  const qualifying = allFiles.filter(file => {
-    if (!file.additions || file.additions === 0) return false;
-    const filename = file.filename.toLowerCase();
-    if (EXCLUDED_EXTENSIONS.some(ext => filename.endsWith(ext))) return false;
-    return SOURCE_PATH_PREFIXES.some(
-      prefix => filename.includes(`/${prefix}`) || filename.startsWith(prefix),
-    );
-  });
+  const qualifying = allFiles.filter(
+    file => file.additions > 0 && isQualifyingCodeFile(file.filename),
+  );
 
   if (qualifying.length === 0) {
     throw new VerificationError(
       1,
-      'No qualifying code changes — need ≥1 addition in /src or /contracts (excluding .md/.txt)',
+      'No qualifying code changes — PR only touches docs, config, or assets',
     );
   }
   return qualifying;
