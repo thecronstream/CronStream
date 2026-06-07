@@ -14,7 +14,7 @@
  * Rule-based. No LLM. Deterministic. No scheduled polling — triggered by events.
  */
 
-import { getLastExtensionTime, isAlreadyProcessed, recordExtension, getProfile, getInstallationIdForRepo, getWeeklyExtendedSeconds } from './db.js';
+import { getLastExtensionTime, isAlreadyProcessed, recordExtension, getProfile, getInstallationIdForRepo, getWeeklyExtendedSeconds, bankWork, isWorkBanked, getBankedWork, deleteBankedWork, getStreamsWithBankedWork } from './db.js';
 import { readStreamBatch, submitExtension } from './chainSubmitter.js';
 import { signExtensionVoucher } from './agentSigner.js';
 import { getInstallationToken } from './githubApp.js';
@@ -481,7 +481,7 @@ async function _checkStream({ streamId, chainId, source, target, sender, periodS
  * @param {string} sourceLabel - log prefix e.g. 'jira' | 'bitbucket'
  */
 export async function extendFromEvent(dbRow, eventRef, sourceLabel) {
-  const { stream_id: streamId, chain_id: chainId, verification_target: target, period_seconds: periodSeconds, hours_per_week: hoursPerWeek } = dbRow;
+  const { stream_id: streamId, verification_target: target, period_seconds: periodSeconds, hours_per_week: hoursPerWeek } = dbRow;
 
   if (_inFlight.has(streamId)) {
     console.log(`[verify:${sourceLabel}] Skipping duplicate for ${streamId?.slice(0, 10)}… (already in-flight)`);
@@ -490,91 +490,134 @@ export async function extendFromEvent(dbRow, eventRef, sourceLabel) {
   _inFlight.add(streamId);
 
   try {
-    // On-chain state
-    let onChain;
-    try {
-      const results = await readStreamBatch([streamId], Number(chainId ?? 421614));
-      onChain = results[0];
-    } catch { return; }
-
-    if (!onChain || onChain.sender === '0x0000000000000000000000000000000000000000') return;
-
-    const now              = Math.floor(Date.now() / 1000);
-    const streamValidUntil = Number(onChain.streamValidUntil ?? 0n);
-    const startTime        = Number(onChain.startTime ?? 0n);
-    const totalDeposited   = BigInt(onChain.totalDeposited ?? 0n);
-    const nonce            = Number(onChain.nonce ?? 0n);
-    const period           = Number(periodSeconds ?? 604800);
-    const dailyWorkSeconds = hoursPerWeek ? Math.round((hoursPerWeek / 5) * 3600) : null;
-    const extensionSeconds = dailyWorkSeconds ?? period;
-
-    const isPending  = streamValidUntil <= startTime && totalDeposited > 0n;
-    const isExpiring = !isPending && streamValidUntil > now && (streamValidUntil - now) <= WARN_WINDOW_S;
-    const isFrozen   = !isPending && streamValidUntil <= now && (now - streamValidUntil) <= FROZEN_LOOKBACK_S && totalDeposited > 0n;
-
-    if (!isPending && !isExpiring && !isFrozen) {
-      console.log(`[verify:${sourceLabel}] Stream ${streamId?.slice(0, 10)}… has healthy runway — skipping`);
-      return;
-    }
-
-    // Replay guard
+    // Replay guard — already applied on-chain, or already waiting in the bank?
     if (await isAlreadyProcessed(streamId, target, eventRef)) {
       console.log(`[verify:${sourceLabel}] Already processed ${eventRef} for ${streamId?.slice(0, 10)}… — skipping`);
       return;
     }
+    if (await isWorkBanked(streamId, eventRef)) {
+      console.log(`[verify:${sourceLabel}] Already banked ${eventRef} for ${streamId?.slice(0, 10)}… — skipping`);
+      return;
+    }
 
-    // Weekly hours cap
-    if (hoursPerWeek && dailyWorkSeconds) {
-      const weekDuration     = 7 * 86400;
-      const weeksSinceStart  = Math.floor((now - startTime) / weekDuration);
-      const weekStart        = startTime + weeksSinceStart * weekDuration;
-      const weekSecondsUsed  = await getWeeklyExtendedSeconds(streamId, weekStart);
-      const maxWeeklySeconds = Math.round(hoursPerWeek * 3600);
+    // Bank the verified deliverable first so it can never be lost, then drain.
+    const dailyWorkSeconds = hoursPerWeek ? Math.round((hoursPerWeek / 5) * 3600) : null;
+    const extensionSeconds = dailyWorkSeconds ?? Number(periodSeconds ?? 604800);
+    await bankWork({ streamId, source: sourceLabel, repository: target, eventRef, extensionSeconds });
+    console.log(`[verify:${sourceLabel}] Banked ${eventRef} (+${extensionSeconds}s earned) for ${streamId?.slice(0, 10)}…`);
 
-      if (weekSecondsUsed + extensionSeconds > maxWeeklySeconds) {
-        console.log(`[verify:${sourceLabel}] Weekly cap reached for ${streamId?.slice(0, 10)}… (${weekSecondsUsed}/${maxWeeklySeconds}s) — skipping`);
-        return;
+    await applyBankedWork(dbRow, sourceLabel);
+  } finally {
+    _inFlight.delete(streamId);
+  }
+}
+
+/**
+ * Draw down a stream's banked work onto the chain, FIFO, respecting:
+ *   - runway: only while the stream is pending/expiring/frozen (never stacks
+ *     beyond WARN_WINDOW_S of runway),
+ *   - weekly cap: never exceeds hours_per_week × 3600 in a rolling 7-day window.
+ * Whatever can't be applied now stays banked for a later week / when runway frees.
+ *
+ * The caller is responsible for the _inFlight guard.
+ */
+async function applyBankedWork(dbRow, sourceLabel = 'drain') {
+  const { stream_id: streamId, chain_id: chainId, hours_per_week: hoursPerWeek } = dbRow;
+
+  const banked = await getBankedWork(streamId);
+  if (!banked.length) return;
+
+  let onChain;
+  try {
+    const results = await readStreamBatch([streamId], Number(chainId ?? 421614));
+    onChain = results[0];
+  } catch { return; }
+  if (!onChain || onChain.sender === '0x0000000000000000000000000000000000000000') return;
+
+  let nonce            = Number(onChain.nonce ?? 0n);
+  let streamValidUntil = Number(onChain.streamValidUntil ?? 0n);
+  const startTime      = Number(onChain.startTime ?? 0n);
+  const totalDeposited = BigInt(onChain.totalDeposited ?? 0n);
+  if (totalDeposited === 0n) return;
+
+  const maxWeeklySeconds = hoursPerWeek ? Math.round(hoursPerWeek * 3600) : null;
+
+  for (const entry of banked) {
+    const now = Math.floor(Date.now() / 1000);
+
+    const isPending  = streamValidUntil <= startTime;
+    const isExpiring = !isPending && streamValidUntil > now && (streamValidUntil - now) <= WARN_WINDOW_S;
+    const isFrozen   = !isPending && streamValidUntil <= now && (now - streamValidUntil) <= FROZEN_LOOKBACK_S;
+    if (!isPending && !isExpiring && !isFrozen) {
+      // Healthy runway — leave the remaining entries banked for later.
+      break;
+    }
+
+    // Weekly cap — overflow carries to a later week.
+    if (maxWeeklySeconds) {
+      const weekDuration    = 7 * 86400;
+      const weeksSinceStart = Math.floor((now - startTime) / weekDuration);
+      const weekStart       = startTime + weeksSinceStart * weekDuration;
+      const weekSecondsUsed = await getWeeklyExtendedSeconds(streamId, weekStart);
+      if (weekSecondsUsed + entry.extension_seconds > maxWeeklySeconds) {
+        console.log(`[verify:${sourceLabel}] Weekly cap reached for ${streamId?.slice(0, 10)}… — ${banked.length} item(s) stay banked`);
+        break;
       }
     }
 
     const stateLabel = isPending ? 'pending' : isExpiring ? 'expiring' : 'frozen';
-    console.log(`[verify:${sourceLabel}] Extending ${stateLabel} stream ${streamId?.slice(0, 10)}… +${extensionSeconds}s via ${eventRef}`);
-
-    const extensionDurationSeconds = extensionSeconds;
     const expiry = now + VOUCHER_TTL_S;
 
-    let signature;
+    let signature, onChainResult;
     try {
-      signature = await signExtensionVoucher({ streamId, extensionDurationSeconds, nonce, expiry });
+      signature = await signExtensionVoucher({ streamId, extensionDurationSeconds: entry.extension_seconds, nonce, expiry });
     } catch (err) {
       console.error(`[verify:${sourceLabel}] Signing failed for ${streamId?.slice(0, 10)}…: ${err.message}`);
-      return;
+      break;
     }
-
-    let onChainResult;
     try {
-      onChainResult = await submitExtension({ streamId, extensionDurationSeconds, nonce, expiry, signature });
+      onChainResult = await submitExtension({ streamId, extensionDurationSeconds: entry.extension_seconds, nonce, expiry, signature });
     } catch (err) {
       console.error(`[verify:${sourceLabel}] On-chain submission failed for ${streamId?.slice(0, 10)}…: ${err.message}`);
-      return;
+      break;
     }
 
     await recordExtension({
       streamId,
-      repository:      target,
-      prNumber:        null,
-      eventRef,
-      chainId:         onChainResult.chainId,
-      chainName:       onChainResult.chainName,
-      txHash:          onChainResult.txHash,
-      blockNumber:     onChainResult.blockNumber,
-      gasUsed:         onChainResult.gasUsed,
-      voucherExpiry:   expiry,
-      extensionSeconds,
+      repository:    entry.repository,
+      prNumber:      null,
+      eventRef:      entry.event_ref,
+      chainId:       onChainResult.chainId,
+      chainName:     onChainResult.chainName,
+      txHash:        onChainResult.txHash,
+      blockNumber:   onChainResult.blockNumber,
+      gasUsed:       onChainResult.gasUsed,
+      voucherExpiry: expiry,
+      extensionSeconds: entry.extension_seconds,
     });
+    await deleteBankedWork(entry.id);
+    console.log(`[verify:${sourceLabel}] ✓ Applied banked ${entry.event_ref} (${stateLabel}) +${entry.extension_seconds}s | tx=${onChainResult.txHash}`);
 
-    console.log(`[verify:${sourceLabel}] ✓ Extended stream ${streamId?.slice(0, 10)}… | tx=${onChainResult.txHash}`);
-  } finally {
-    _inFlight.delete(streamId);
+    // Advance local state for the next iteration's runway check.
+    nonce += 1;
+    const base = (isFrozen || isPending) ? now : streamValidUntil;
+    streamValidUntil = base + entry.extension_seconds;
+  }
+}
+
+/**
+ * Periodic drainer — applies banked work for any stream that now has room
+ * (runway freed up, or a new week reset the cap) even if no new webhook arrived.
+ * Called on an interval from server startup.
+ */
+export async function drainAllBankedWork() {
+  let streams;
+  try { streams = await getStreamsWithBankedWork(); } catch { return; }
+  for (const row of streams) {
+    if (_inFlight.has(row.stream_id)) continue;
+    _inFlight.add(row.stream_id);
+    try { await applyBankedWork(row, 'drain'); }
+    catch (err) { console.error(`[drain] ${row.stream_id?.slice(0, 10)}…: ${err.message}`); }
+    finally { _inFlight.delete(row.stream_id); }
   }
 }

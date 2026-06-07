@@ -15,10 +15,10 @@ import helmet    from 'helmet';
 import rateLimit from 'express-rate-limit';
 
 import { verifyMilestone, VerificationError } from './verifyMilestone.js';
-import { verifyGitHubWebhook, verifyJiraWebhook, verifyBitbucketWebhook, verifyFigmaWebhook, extendFromEvent, checkStream } from './verificationEngine.js';
+import { verifyGitHubWebhook, verifyJiraWebhook, verifyBitbucketWebhook, verifyFigmaWebhook, extendFromEvent, checkStream, drainAllBankedWork } from './verificationEngine.js';
 import { signExtensionVoucher, getSignerAddress } from './agentSigner.js';
 import { submitExtension, getAllBalances, readStreamBatch }   from './chainSubmitter.js';
-import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsByRepo, getStreamsBySource, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount, saveOAuthTokens, disconnectOAuth, saveRepoInstallation, removeRepoInstallation, saveJiraWebhookIds, getProfileByJiraWebhookId, getInstallationIdForRepo } from './db.js';
+import { initDb, isAlreadyProcessed, recordExtension, getExtensionCount, registerStream, getStream, getStreamsByRepo, getStreamsBySource, getStreamsForAddress, getDb, upsertProfile, getProfile, getProfileByUsername, getProfileByApiKey, searchProfiles, isUsernameTaken, addToWaitlist, getWaitlistCount, saveOAuthTokens, disconnectOAuth, saveRepoInstallation, removeRepoInstallation, saveJiraWebhookIds, getProfileByJiraWebhookId, getInstallationIdForRepo, getBankedWork } from './db.js';
 import { publicProfile } from './encryption.js';
 import publicApiRouter        from './publicApi.js';
 import { startStreamListeners } from './streamListener.js';
@@ -1527,15 +1527,18 @@ app.get('/api/v1/stream-status/:streamId', async (req, res) => {
 
   try {
     const db = getDb();
-    const [stream, extResult] = await Promise.all([
+    const [stream, extResult, banked] = await Promise.all([
       getStream(streamId),
       db.execute({
         sql:  'SELECT * FROM processed_extensions WHERE stream_id = ? ORDER BY created_at DESC',
         args: [streamId],
       }),
+      getBankedWork(streamId),
     ]);
 
-    return res.json({ streamId, stream, extensions: extResult.rows });
+    // banked = verified deliverables earned but not yet applied on-chain (queued
+    // behind the runway / weekly cap). Returned newest-first to match extensions.
+    return res.json({ streamId, stream, extensions: extResult.rows, banked: [...banked].reverse() });
   } catch (err) {
     console.error('[stream-status] Error:', err);
     return res.status(500).json({ error: 'Failed to fetch stream status' });
@@ -1877,4 +1880,12 @@ app.listen(PORT, async () => {
   }
 
   console.log('═══════════════════════════════════════════════════');
+
+  // Periodic banked-work drainer — applies earned work that couldn't be applied
+  // when it was verified (weekly cap hit, or stream still had runway) once a new
+  // week resets the cap or the runway frees up, even with no new webhook.
+  const DRAIN_INTERVAL_MS = parseInt(process.env.BANK_DRAIN_INTERVAL_MS ?? String(10 * 60 * 1000), 10);
+  setInterval(() => {
+    drainAllBankedWork().catch(err => console.error('[drain] sweep failed:', err.message));
+  }, DRAIN_INTERVAL_MS).unref();
 });

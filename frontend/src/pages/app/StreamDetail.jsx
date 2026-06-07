@@ -203,6 +203,7 @@ export default function StreamDetail() {
   const [idCopied,              setIdCopied]              = useState(false);
   const [agentStatus,           setAgentStatus]           = useState(null); // null | 'registered' | 'unregistered'
   const [extensions,            setExtensions]            = useState(null);  // null = loading, [] = none
+  const [banked,                setBanked]                = useState([]);    // verified work queued, not yet on-chain
   const [registering,           setRegistering]           = useState(false);
   const [manualTarget,          setManualTarget]          = useState('');
   const [localVerificationTarget, setLocalVerificationTarget] = useState('');
@@ -269,8 +270,9 @@ export default function StreamDetail() {
       .then(data => {
         setAgentStatus(data?.stream ? 'registered' : 'unregistered');
         setExtensions(Array.isArray(data?.extensions) ? data.extensions : []);
+        setBanked(Array.isArray(data?.banked) ? data.banked : []);
       })
-      .catch(() => { setAgentStatus(null); setExtensions([]); });
+      .catch(() => { setAgentStatus(null); setExtensions([]); setBanked([]); });
   }, [id, stream?.streamId]);
 
   async function registerWithAgent() {
@@ -791,6 +793,42 @@ export default function StreamDetail() {
             )}
           </div>
 
+          {/* Queued — verified deliverables earned but not yet applied on-chain
+              (held behind the stream's runway / weekly cap). */}
+          {banked.length > 0 && (
+            <div className="mb-1">
+              <div className="flex items-center gap-2 py-2.5 px-0.5 flex-wrap">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-sky-400/70">Queued</span>
+                <span className="text-[10px] font-mono text-muted/50">
+                  {banked.length} deliverable{banked.length !== 1 ? 's' : ''} earned · applies as runway and the weekly cap allow
+                </span>
+              </div>
+              <div className="flex flex-col divide-y divide-border/60">
+                {banked.map((b, i) => {
+                  const { label, sub, platform } = parseEventRef(b.event_ref);
+                  const duration = fmtDuration(b.extension_seconds);
+                  return (
+                    <div key={`b${i}`} className="flex items-center gap-3 py-3 min-w-0 opacity-70">
+                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
+                        {PLATFORM_ICONS[platform]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-mono text-white/90 truncate">{label}</span>
+                          {sub && <span className="text-[10px] text-muted/60 font-mono">{sub}</span>}
+                          {duration && (
+                            <span className="text-[10px] font-mono text-sky-300/80 bg-sky-500/10 px-1.5 py-0.5 rounded-md">{duration}</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono text-sky-400/60 border border-sky-500/20 rounded-full px-2 py-0.5 shrink-0">Queued</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {extensions === null ? (
             <div className="flex items-center gap-2 py-6 px-1">
               <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin shrink-0" />
@@ -798,9 +836,11 @@ export default function StreamDetail() {
             </div>
           ) : extensions.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-sm text-muted">No extensions yet.</p>
+              <p className="text-sm text-muted">{banked.length > 0 ? 'No extensions applied on-chain yet.' : 'No extensions yet.'}</p>
               <p className="text-xs text-muted/50 mt-1 font-mono">
-                {isPending
+                {banked.length > 0
+                  ? 'Queued work above applies as the stream needs runway.'
+                  : isPending
                   ? 'Submit verified work to trigger the first extension.'
                   : 'Extensions appear here as work is verified.'}
               </p>

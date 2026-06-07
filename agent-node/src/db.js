@@ -42,15 +42,16 @@ const SCHEMA = `
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     stream_id    TEXT    NOT NULL,
     repository   TEXT    NOT NULL,
-    pr_number    INTEGER NOT NULL,
+    pr_number    INTEGER,
+    event_ref    TEXT,
     chain_id     INTEGER NOT NULL,
     chain_name   TEXT    NOT NULL,
     tx_hash      TEXT,
     block_number INTEGER,
     gas_used     TEXT,
-    voucher_expiry INTEGER,
-    created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
-    UNIQUE (stream_id, repository, pr_number)
+    voucher_expiry    INTEGER,
+    extension_seconds INTEGER,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
   CREATE TABLE IF NOT EXISTS stream_registry (
@@ -95,6 +96,21 @@ const SCHEMA = `
     installation_id TEXT    NOT NULL,
     account         TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- Verified work earned but not yet applied on-chain. Each verified deliverable
+  -- is banked here first, then drawn down as the stream's runway + weekly cap
+  -- allow. Overflow (e.g. PRs beyond the weekly cap) carries into later weeks
+  -- instead of being lost.
+  CREATE TABLE IF NOT EXISTS banked_work (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    stream_id         TEXT    NOT NULL,
+    source            TEXT,
+    repository        TEXT,
+    event_ref         TEXT    NOT NULL,
+    extension_seconds INTEGER NOT NULL,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (stream_id, event_ref)
   );
 `;
 
@@ -168,6 +184,46 @@ export async function initDb() {
   for (const sql of migrations) {
     try { await db.execute(sql); } catch { /* column already exists */ }
   }
+
+  // ── processed_extensions rebuild ───────────────────────────────────────────
+  // Older DBs created pr_number as INTEGER NOT NULL with UNIQUE(stream_id,
+  // repository, pr_number). Webhook extensions pass prNumber=null, so the row
+  // violated NOT NULL and was silently dropped by INSERT OR IGNORE — extensions
+  // never reached the activity feed. Rebuild with pr_number nullable; event_ref
+  // is the real dedup key. Atomic via batch — rolls back if anything fails.
+  try {
+    const info  = await db.execute('PRAGMA table_info(processed_extensions)');
+    const prCol = info.rows.find(r => r.name === 'pr_number');
+    if (prCol && Number(prCol.notnull) === 1) {
+      console.log('[db] Rebuilding processed_extensions (pr_number → nullable, event_ref key)…');
+      await db.batch([
+        `CREATE TABLE processed_extensions_new (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           stream_id TEXT NOT NULL, repository TEXT NOT NULL,
+           pr_number INTEGER, event_ref TEXT,
+           chain_id INTEGER NOT NULL, chain_name TEXT NOT NULL,
+           tx_hash TEXT, block_number INTEGER, gas_used TEXT,
+           voucher_expiry INTEGER, extension_seconds INTEGER,
+           created_at INTEGER NOT NULL DEFAULT (unixepoch())
+         )`,
+        `INSERT INTO processed_extensions_new
+           (id, stream_id, repository, pr_number, event_ref, chain_id, chain_name,
+            tx_hash, block_number, gas_used, voucher_expiry, extension_seconds, created_at)
+         SELECT id, stream_id, repository, pr_number, event_ref, chain_id, chain_name,
+            tx_hash, block_number, gas_used, voucher_expiry, extension_seconds, created_at
+         FROM processed_extensions`,
+        'DROP TABLE processed_extensions',
+        'ALTER TABLE processed_extensions_new RENAME TO processed_extensions',
+      ], 'write');
+      console.log('[db] ✓ processed_extensions rebuilt');
+    }
+  } catch (err) {
+    console.warn('[db] processed_extensions rebuild skipped:', err.message);
+  }
+  // Dedup on the real key. SQLite allows multiple NULL event_refs (legacy rows).
+  try {
+    await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_proc_ext_event ON processed_extensions (stream_id, repository, event_ref)');
+  } catch { /* duplicate legacy data — replay guard still dedups */ }
 
   console.log('[db] ✓ Schema initialized');
 }
@@ -251,6 +307,62 @@ export async function getWeeklyExtendedSeconds(streamId, weekStartTime) {
     args: [streamId, weekStartTime],
   });
   return Number(result.rows[0]?.total ?? 0);
+}
+
+// ─── Banked Work ──────────────────────────────────────────────────────────────
+// Verified deliverables earned but not yet applied on-chain. The agent drains
+// these as the stream's runway and weekly cap allow, so bursty work (or work
+// beyond the weekly cap) is carried forward rather than lost.
+
+/** Queue a verified deliverable. Idempotent on (stream_id, event_ref). */
+export async function bankWork({ streamId, source, repository, eventRef, extensionSeconds }) {
+  const db = getDb();
+  if (!db) return;
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO banked_work (stream_id, source, repository, event_ref, extension_seconds)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [streamId, source ?? null, repository ?? null, String(eventRef), Number(extensionSeconds)],
+  });
+}
+
+/** Has this event already been banked (still waiting to apply)? */
+export async function isWorkBanked(streamId, eventRef) {
+  const db = getDb();
+  if (!db) return false;
+  const r = await db.execute({
+    sql:  'SELECT 1 FROM banked_work WHERE stream_id = ? AND event_ref = ? LIMIT 1',
+    args: [streamId, String(eventRef)],
+  });
+  return r.rows.length > 0;
+}
+
+/** Banked entries for a stream, oldest first (FIFO drain order). */
+export async function getBankedWork(streamId) {
+  const db = getDb();
+  if (!db) return [];
+  const r = await db.execute({
+    sql:  'SELECT * FROM banked_work WHERE stream_id = ? ORDER BY created_at ASC, id ASC',
+    args: [streamId],
+  });
+  return r.rows;
+}
+
+/** Remove a banked entry once it has been applied on-chain. */
+export async function deleteBankedWork(id) {
+  const db = getDb();
+  if (!db) return;
+  await db.execute({ sql: 'DELETE FROM banked_work WHERE id = ?', args: [id] });
+}
+
+/** Registry rows for every stream that has at least one banked entry waiting. */
+export async function getStreamsWithBankedWork() {
+  const db = getDb();
+  if (!db) return [];
+  const r = await db.execute(
+    `SELECT s.* FROM stream_registry s
+     WHERE s.stream_id IN (SELECT DISTINCT stream_id FROM banked_work)`,
+  );
+  return r.rows;
 }
 
 // ─── Stream Repo Lookup ───────────────────────────────────────────────────────
