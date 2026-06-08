@@ -12,6 +12,7 @@ import { CreateStreamProvider } from './context/CreateStreamContext';
 import { AuthProvider } from './context/AuthContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <CreateStreamProvider>
                   <App />
                   <Analytics />
+                  <SpeedInsights />
                 </CreateStreamProvider>
               </AuthProvider>
             </ErrorBoundary>
