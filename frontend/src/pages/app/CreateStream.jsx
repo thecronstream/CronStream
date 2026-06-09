@@ -4,6 +4,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { parseUnits, formatUnits, parseAbiItem, maxUint256 } from 'viem';
 import { getContractAddress, ROUTER_ABI } from '../../lib/wagmi';
 import { registerStreamWithAgent } from '../../hooks/useAgentStatus';
+import { useAuth } from '../../context/AuthContext';
 
 // ─── Token registry ───────────────────────────────────────────────────────────
 const TOKENS = [
@@ -53,6 +54,7 @@ function Steps({ current }) {
 export default function CreateStream() {
   const navigate    = useNavigate();
   const { address } = useAccount();
+  const { authFetch } = useAuth();
   const publicClient = usePublicClient();
   const chainId     = useChainId();
 
@@ -123,6 +125,7 @@ export default function CreateStream() {
               repo:         form.githubRepo,
               recipient:    form.recipient,
               ratePerSecond: ratePerSecond.toString(),
+              authFetch,
             });
           }
         }

@@ -281,7 +281,7 @@ export default function StreamDetail() {
     if (!target) return;
     setRegistering(true);
     try {
-      const res = await fetch(`${AGENT_URL}/api/v1/register-stream`, {
+      const res = await authFetch(`${AGENT_URL}/api/v1/register-stream`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({

@@ -10,20 +10,9 @@ function UsernameField({ value, address, onChange, locked }) {
   const [status, setStatus] = useState('idle'); // idle | checking | available | taken | invalid
   const debounce = useRef(null);
 
-  // Already set and immutable — show it read-only.
-  if (locked) {
-    return (
-      <div>
-        <label className="label">Username <span className="text-muted/50 normal-case tracking-normal font-normal">(set, can't be changed)</span></label>
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted font-mono text-sm select-none">@</span>
-          <input value={value} disabled className="input pl-8 opacity-60 cursor-not-allowed" />
-        </div>
-      </div>
-    );
-  }
-
+  // NOTE: every hook must run before any conditional return (rules of hooks).
   useEffect(() => {
+    if (locked) return;
     if (!value || value.length < 3) { setStatus('idle'); return; }
     if (!/^[a-z0-9_-]+$/.test(value)) { setStatus('invalid'); return; }
 
@@ -42,7 +31,20 @@ function UsernameField({ value, address, onChange, locked }) {
         setStatus('idle'); // agent offline - allow continuing
       }
     }, 500);
-  }, [value, address]);
+  }, [value, address, locked]);
+
+  // Already set and immutable — show it read-only (after all hooks have run).
+  if (locked) {
+    return (
+      <div>
+        <label className="label">Username <span className="text-muted/50 normal-case tracking-normal font-normal">(set, can't be changed)</span></label>
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted font-mono text-sm select-none">@</span>
+          <input value={value} disabled className="input pl-8 opacity-60 cursor-not-allowed" />
+        </div>
+      </div>
+    );
+  }
 
   const hint = {
     idle:      null,
