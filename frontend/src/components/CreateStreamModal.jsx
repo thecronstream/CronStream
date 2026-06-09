@@ -392,7 +392,7 @@ export default function CreateStreamModal() {
         const delays = [0, 2000, 4000, 8000];
         for (const delay of delays) {
           if (delay) await new Promise(r => setTimeout(r, delay));
-          const result = await registerStreamWithAgent(args);
+          const result = await registerStreamWithAgent({ ...args, authFetch });
           if (result?.success) { setRegStatus('ok'); return; }
         }
         setRegStatus('failed');

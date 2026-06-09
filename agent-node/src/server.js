@@ -1388,15 +1388,13 @@ app.get('/api/v1/u/:username', async (req, res) => {
 //   ratePerSecond: "1234"  (bigint as string)
 // }
 
-// register-stream — open endpoint, no auth required.
-// The frontend calls this immediately after the tx confirms with data decoded
-// directly from the StreamCreated event log. We trust it and upsert.
-// When the on-chain event listener fires seconds later it also upserts — the
-// two calls merge cleanly because stream_registry uses ON CONFLICT DO UPDATE.
-// Security: verificationTarget can be set by anyone, but the verification
-// engine gates extensions on the contractor's registered GitHub handle, so
-// pointing a stream at the wrong repo doesn't help an attacker.
-app.post('/api/v1/register-stream', async (req, res) => {
+// register-stream — JWT-protected and ownership-checked.
+// The frontend calls this immediately after the createStream tx confirms.
+// Auth: the caller must hold a valid SIWE JWT AND be the stream's on-chain
+// `sender` — otherwise anyone could overwrite a stream's verification routing or
+// hours-per-week (which sizes extensions). The on-chain read is the source of
+// truth, so you can only register/update a stream you actually created.
+app.post('/api/v1/register-stream', verifyJwt, async (req, res) => {
   const {
     streamId,
     repo,
@@ -1430,6 +1428,25 @@ app.post('/api/v1/register-stream', async (req, res) => {
     return res.status(400).json({ error: 'Invalid streamId format' });
   }
 
+  // Ownership: the JWT caller must be the stream's on-chain sender. The chain is
+  // the source of truth, so you can only register/update a stream you created.
+  let onChainSender;
+  try {
+    const [onChain] = await readStreamBatch([streamId], resolvedChainId);
+    onChainSender = onChain?.sender ?? null;
+    if (!onChainSender || onChainSender === '0x0000000000000000000000000000000000000000') {
+      console.warn(`[register-stream] ✗ Rejected — stream ${streamId.slice(0, 12)}… not found on-chain`);
+      return res.status(404).json({ error: 'Stream not found on-chain' });
+    }
+    if (onChainSender.toLowerCase() !== req.callerAddress.toLowerCase()) {
+      console.warn(`[register-stream] ✗ Rejected — caller ${req.callerAddress.slice(0, 8)}… is not the stream creator`);
+      return res.status(403).json({ error: 'Only the stream creator can register this stream' });
+    }
+  } catch (err) {
+    console.error('[register-stream] ownership check failed:', err.message);
+    return res.status(502).json({ error: 'Could not verify stream ownership on-chain' });
+  }
+
   try {
     const contractAddress = resolvedChainId === 46630
       ? (process.env.CONTRACT_ADDRESS_ROBINHOOD  || process.env.CONTRACT_ADDRESS || null)
@@ -1441,7 +1458,7 @@ app.post('/api/v1/register-stream', async (req, res) => {
       githubRepo:         verificationSource === 'github' || !verificationSource ? resolvedTarget : null,
       verificationSource: verificationSource ?? 'github',
       verificationTarget: resolvedTarget,
-      sender:             req.body.sender ?? null,
+      sender:             onChainSender,
       recipient:          recipient ?? null,
       ratePerSecond:      ratePerSecond ?? null,
       token:              token ?? null,
