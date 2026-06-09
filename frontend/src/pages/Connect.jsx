@@ -7,13 +7,13 @@ import { useProfile } from '../hooks/useProfile';
 export default function Connect() {
   const navigate = useNavigate();
   const { address, isConnected } = useAccount();
-  const { hasProfile } = useProfile(address);
+  const { profileComplete } = useProfile(address);
 
   useEffect(() => {
     if (isConnected) {
-      navigate(hasProfile ? '/app/dashboard' : '/app/setup', { replace: true });
+      navigate(profileComplete ? '/app/dashboard' : '/app/setup', { replace: true });
     }
-  }, [isConnected, hasProfile, navigate]);
+  }, [isConnected, profileComplete, navigate]);
 
   return (
     <div className="min-h-screen bg-dark flex items-center justify-center px-6 grid-bg">

@@ -1,14 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
-import { useProfile } from '../../hooks/useProfile';
+import { useProfile, isProfileComplete } from '../../hooks/useProfile';
 import { useAuth } from '../../context/AuthContext';
 
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 
-function UsernameField({ value, address, onChange }) {
+function UsernameField({ value, address, onChange, locked }) {
   const [status, setStatus] = useState('idle'); // idle | checking | available | taken | invalid
   const debounce = useRef(null);
+
+  // Already set and immutable — show it read-only.
+  if (locked) {
+    return (
+      <div>
+        <label className="label">Username <span className="text-muted/50 normal-case tracking-normal font-normal">(set, can't be changed)</span></label>
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted font-mono text-sm select-none">@</span>
+          <input value={value} disabled className="input pl-8 opacity-60 cursor-not-allowed" />
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (!value || value.length < 3) { setStatus('idle'); return; }
@@ -71,10 +84,31 @@ export default function Setup() {
   const [form, setForm] = useState({
     username: '', name: '', github: '', website: '',
   });
+  const [prefilled, setPrefilled] = useState(false);
 
-  // If profile already exists redirect immediately - don't show the form
+  // A profile that exists but is incomplete (e.g. a missing immutable username
+  // from a partial save) lands here to be completed rather than dumped on a
+  // broken dashboard. Role is fixed once set; username is fixed once set.
+  const completing     = synced && !!profile?.role && !isProfileComplete(profile);
+  const usernameLocked = !!profile?.username;
+
+  // Prefill the form once with whatever the existing profile already has.
   useEffect(() => {
-    if (synced && profile?.role) {
+    if (synced && profile && !prefilled) {
+      setRole(profile.role ?? null);
+      setForm({
+        username: profile.username ?? '',
+        name:     profile.name     ?? '',
+        github:   profile.github   ?? '',
+        website:  profile.website  ?? '',
+      });
+      setPrefilled(true);
+    }
+  }, [synced, profile, prefilled]);
+
+  // Only leave Setup once the profile is genuinely complete.
+  useEffect(() => {
+    if (synced && isProfileComplete(profile)) {
       navigate('/app/dashboard', { replace: true });
     }
   }, [synced, profile, navigate]);
@@ -155,11 +189,14 @@ export default function Setup() {
             </div>
             <span className="text-accent font-mono font-semibold text-sm">CronStream</span>
           </div>
-          <h1 className="text-2xl font-bold mb-1">Set up your profile</h1>
-          <p className="text-muted text-sm">Tell us how you'll use CronStream.</p>
+          <h1 className="text-2xl font-bold mb-1">{completing ? 'Complete your profile' : 'Set up your profile'}</h1>
+          <p className="text-muted text-sm">
+            {completing ? 'A required detail is missing. Add it to finish.' : "Tell us how you'll use CronStream."}
+          </p>
         </div>
 
-        {/* Role picker */}
+        {/* Role picker — hidden once a role exists (role is immutable) */}
+        {!completing && (
         <div className="grid grid-cols-2 gap-3 mb-6">
           {[
             { value: 'company',    icon: '🏢', title: 'Company',    desc: 'Create streams, pay contractors' },
@@ -178,6 +215,7 @@ export default function Setup() {
             </button>
           ))}
         </div>
+        )}
 
         {/* Form */}
         {role && (
@@ -186,6 +224,7 @@ export default function Setup() {
             <UsernameField
               value={form.username}
               address={address}
+              locked={usernameLocked}
               onChange={val => setForm(f => ({ ...f, username: val }))}
             />
 
@@ -251,7 +290,7 @@ export default function Setup() {
               disabled={loading || !form.name || !form.username || (role === 'contractor' && !form.github.trim())}
               className="btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed mt-1"
             >
-              {loading ? 'Setting up…' : 'Continue to Dashboard →'}
+              {loading ? 'Saving…' : completing ? 'Save and continue →' : 'Continue to Dashboard →'}
             </button>
           </form>
         )}

@@ -3,6 +3,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? 'http://localhost:3000';
 const CACHE_KEY = addr => `cronstream_profile_${addr?.toLowerCase()}`;
 
+/**
+ * A profile is "complete" only when every required field is present. A partial
+ * save (e.g. the onboarding 401 bug) can leave a profile with a role but no
+ * username, which has no Settings field to fix — so we route such profiles back
+ * through Setup to collect what's missing.
+ */
+export function isProfileComplete(p) {
+  if (!p || !p.role || !p.username || !p.name) return false;
+  if (p.role === 'contractor' && !p.github) return false;
+  return true;
+}
+
 // ─── Module-level deduplication ──────────────────────────────────────────────
 // Multiple components (AppShell, Dashboard, CreateStreamModal, etc.) all call
 // useProfile(address) independently. Without deduplication each mount fires its
@@ -170,6 +182,9 @@ export function useProfile(address) {
     };
     setProfile(optimistic);
     localStorage.setItem(CACHE_KEY(address), JSON.stringify(optimistic));
+    // Notify other mounted components (AppShell, dashboard) immediately so the
+    // role/username reflect without waiting for the server round-trip or a refresh.
+    notifyListeners(address, optimistic);
 
     // Bust the memory cache so next mount re-fetches fresh data
     invalidateCache(address);
@@ -205,7 +220,7 @@ export function useProfile(address) {
     if (address) { invalidateCache(address); fetchProfile(address); }
   }
 
-  return { profile, saveProfile, loading, synced, hasProfile: !!profile, refreshProfile };
+  return { profile, saveProfile, loading, synced, hasProfile: !!profile, profileComplete: isProfileComplete(profile), refreshProfile };
 }
 
 function _shortAddr(addr) {

@@ -28,13 +28,13 @@ export default function Landing() {
   const navigate             = useNavigate();
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
-  const { hasProfile }       = useProfile(address);
+  const { profileComplete }  = useProfile(address);
 
   useEffect(() => {
     if (isConnected) {
-      navigate(hasProfile ? '/app/dashboard' : '/app/setup', { replace: true });
+      navigate(profileComplete ? '/app/dashboard' : '/app/setup', { replace: true });
     }
-  }, [isConnected, hasProfile, navigate]);
+  }, [isConnected, profileComplete, navigate]);
 
   function handleLaunch() {
     if (isConnected) {

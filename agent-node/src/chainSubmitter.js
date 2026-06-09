@@ -69,6 +69,12 @@ function getConnectedWallet(chainId) {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+// Serializes all on-chain submissions from the agent signer. Concurrent
+// extensions (e.g. one PR fanning out to multiple streams on the same repo)
+// otherwise grab the same account nonce and one tx fails with "nonce too low".
+// Submissions are infrequent, so a single global queue is simplest and safe.
+let _submitChain = Promise.resolve();
+
 /**
  * Submit an ExtensionVoucher on-chain.
  *
@@ -82,7 +88,15 @@ function getConnectedWallet(chainId) {
  *
  * @returns {Promise<{ txHash: string, blockNumber: number, gasUsed: string, chainId: number }>}
  */
-export async function submitExtension({
+export async function submitExtension(params) {
+  // Queue behind any in-flight submission so account nonces never collide.
+  const run = _submitChain.then(() => _submitExtension(params));
+  // Keep the queue alive whether this one succeeds or fails.
+  _submitChain = run.then(() => {}, () => {});
+  return run;
+}
+
+async function _submitExtension({
   streamId,
   extensionDurationSeconds,
   nonce,
