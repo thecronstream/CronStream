@@ -3,6 +3,8 @@ import { useAccount } from 'wagmi';
 import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { useEffect } from 'react';
 import { useProfile } from '../hooks/useProfile';
+import { useMetaTags } from '../hooks/useMetaTags';
+import { useSchemaMarkup } from '../hooks/useSchemaMarkup';
 import StreamBackground from '../components/StreamBackground';
 import FlowDiagram from '../components/FlowDiagram';
 
@@ -29,6 +31,36 @@ export default function Landing() {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { profileComplete }  = useProfile(address);
+
+  // SEO metadata
+  useMetaTags({
+    title: 'CronStream - Programmable Payroll for Contractors & Teams',
+    description: 'Milestone-verified payment streams for teams. Contractors earn as work ships with automatic verification from GitHub, Jira, Bitbucket, and Figma. No invoices. No delays. No disputes.',
+    url: 'https://cronstream.xyz',
+  });
+
+  // Structured data for Google AI summaries
+  useSchemaMarkup({
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'CronStream',
+    description: 'Programmable payroll platform for milestone-verified contractor payments',
+    applicationCategory: 'FinanceApplication',
+    offers: {
+      '@type': 'Offer',
+      price: '0.5',
+      priceCurrency: 'USD',
+      description: '0.5% protocol fee'
+    },
+    featureList: [
+      'Milestone-Gated Streams',
+      'Autonomous Agent Verification',
+      'ERC-20 Token Support',
+      'Per-Second Precision',
+      'Full Budget Recovery',
+      'EIP-712 Cryptographic Proof'
+    ],
+  });
 
   useEffect(() => {
     if (isConnected) {

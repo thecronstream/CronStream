@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useMetaTags } from '../hooks/useMetaTags';
 
 const LAST_UPDATED = 'May 2026';
 
@@ -35,6 +36,13 @@ const SECTIONS = [
 
 export default function Privacy() {
   const navigate = useNavigate();
+
+  useMetaTags({
+    title: 'Privacy Policy - CronStream',
+    description: 'Learn how CronStream protects your data and privacy. We collect only what is necessary to operate the protocol.',
+    url: 'https://cronstream.xyz/privacy',
+  });
+
   return (
     <div className="min-h-screen bg-dark text-white">
       {/* Nav */}
