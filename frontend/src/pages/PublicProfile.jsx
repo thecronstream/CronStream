@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useCreateStream } from '../context/CreateStreamContext';
+import { useMetaTags } from '../hooks/useMetaTags';
 import CreateStreamModal from '../components/CreateStreamModal';
 import Watermark from '../components/Watermark';
 
@@ -25,6 +26,17 @@ export default function PublicProfile() {
 
   const [status,      setStatus]      = useState('idle');
   const [contractor,  setContractor]  = useState(null);
+
+  // Update metadata when contractor data loads
+  useMetaTags({
+    title: contractor?.name
+      ? `${contractor.name} - CronStream Profile`
+      : 'CronStream - Contractor Profile',
+    description: contractor?.name
+      ? `View ${contractor.name}'s payment streams and work verification on CronStream`
+      : 'View contractor profile on CronStream',
+    url: `https://cronstream.xyz/p/${username}`,
+  });
 
   // Only fetch once wallet is connected - never expose contractor info to unauthenticated visitors
   useEffect(() => {

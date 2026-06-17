@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useMetaTags } from '../hooks/useMetaTags';
 
 const LAST_UPDATED = 'May 2026';
 
@@ -47,6 +48,13 @@ const SECTIONS = [
 
 export default function Terms() {
   const navigate = useNavigate();
+
+  useMetaTags({
+    title: 'Terms of Service - CronStream',
+    description: 'CronStream Terms of Service and legal agreement for using the platform.',
+    url: 'https://cronstream.xyz/terms',
+  });
+
   return (
     <div className="min-h-screen bg-dark text-white">
       {/* Nav */}

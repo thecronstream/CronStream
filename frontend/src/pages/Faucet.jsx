@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseAbi } from 'viem';
 import { useNavigate } from 'react-router-dom';
+import { useMetaTags } from '../hooks/useMetaTags';
 
 const CRM_ADDRESS  = '0x2Ca6e6FbAA8D0Bc27a64Ca079aFa6bf5cc8C7ad1';
 const CRM_ABI      = parseAbi(['function faucet() external']);
@@ -62,6 +63,12 @@ export default function Faucet() {
   const { address, isConnected } = useAccount();
   const navigate = useNavigate();
   const [claimed, setClaimed] = useState(false);
+
+  useMetaTags({
+    title: 'Faucet - CronStream Testnet',
+    description: 'Get free test tokens on Arbitrum Sepolia and Robinhood Chain for CronStream development and testing.',
+    url: 'https://cronstream.xyz/faucet',
+  });
 
   const { writeContract, data: txHash, isPending, error } = useWriteContract();
   const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
