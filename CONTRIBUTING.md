@@ -1,6 +1,6 @@
-# Contributing to CronStream
+# Contributing to Cronstream
 
-Thank you for your interest in contributing to CronStream — the autonomous milestone-gated B2B token streaming protocol.
+Cronstream is a Uniswap v4 hook protocol. Contributions are focused on the smart contract layer and keeper automation.
 
 ---
 
@@ -9,16 +9,11 @@ Thank you for your interest in contributing to CronStream — the autonomous mil
 ```
 cronstream/
 ├── contracts/        Solidity smart contracts (Foundry)
-│   ├── src/          CronStreamRouter.sol, ICronStream.sol
+│   ├── src/          CronstreamHook.sol, libraries/TransientAccounting.sol
 │   ├── test/         Foundry test suite
-│   └── script/       Deploy scripts
+│   └── script/       Deploy scripts (Base · Arbitrum · Unichain)
 │
-├── agent-node/       Autonomous off-chain agent (Express.js)
-│   └── src/          server.js, agentSigner.js, verifyMilestone.js,
-│                     publicApi.js, chainSubmitter.js, db.js
-│
-└── frontend/         React app (Vite + Wagmi + RainbowKit)
-    └── src/          Dashboards, stream lifecycle UI, hooks, components
+└── frontend/         Protocol placeholder page (React · Vite)
 ```
 
 ---
@@ -34,21 +29,12 @@ forge build
 forge test
 ```
 
-### Agent node
-
-```bash
-cd agent-node
-npm install
-cp .env.example .env   # fill in your keys
-npm run dev
-```
-
 ### Frontend
 
 ```bash
 cd frontend
 npm install
-npm run dev            # http://localhost:5173
+npm run dev
 ```
 
 ---
@@ -58,25 +44,12 @@ npm run dev            # http://localhost:5173
 ### Smart contracts
 
 - All contracts must compile with `forge build` — zero errors, zero warnings
-- Every new function must have a corresponding test in `test/CronStream.t.sol`
+- Every new function must have a corresponding test in `test/Cronstream.t.sol`
 - Follow Checks-Effects-Interactions (CEI) on all state-mutating functions
 - Use custom errors over `require` strings
 - Named imports only — `import {X} from "..."`
 - Run `forge fmt` before committing
-
-### Agent node
-
-- All source files must pass `node --check src/<file>.js`
-- Use ESM (`import`/`export`) — no CommonJS `require()`
-- Environment variables must be documented in `.env.example`
-- Never commit a `.env` file with real keys
-- Public API endpoints must validate inputs before any DB or chain call
-
-### Frontend
-
-- Components must render without console errors
-- Wallet interactions must handle pending, success, and error states
-- Run `npm run build` before opening a PR — the build must be clean
+- EIP-1153 transient storage must be used for all intra-transaction state
 
 ---
 
@@ -92,23 +65,15 @@ npm run dev            # http://localhost:5173
 2. **Required checks before opening a PR**
    - [ ] `forge build` passes with no errors or warnings
    - [ ] `forge test` passes — all tests green
-   - [ ] `node --check` passes for any agent-node files changed
    - [ ] `npm run build` passes for any frontend files changed
-   - [ ] `.env.example` updated if new environment variables were added
 
 3. **PR description must include**
    - What the change does
    - Why it is needed
    - How it was tested
 
-4. **Review**  
-   All PRs require at least one review before merging. Changes to signature logic, fee calculations, or role management require explicit sign-off.
-
----
-
-## License
-
-All contributions are made under the [Business Source License 1.1](./LICENSE). By submitting a pull request you agree that your contribution will be licensed under BUSL-1.1.
+4. **Review**
+   All PRs require at least one review before merging. Changes to flash accounting, delta settlement, or LP distribution logic require explicit sign-off.
 
 ---
 
@@ -116,22 +81,10 @@ All contributions are made under the [Business Source License 1.1](./LICENSE). B
 
 **Do not open a public issue for security vulnerabilities.**
 
-Report privately by contacting the maintainers directly:
-
-- **Email:** thecronstream@gmail.com
-- **Telegram:** [@AbrahamNA_VIG](https://t.me/AbrahamNA_VIG)
-
-Include:
-
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix if available
+Report privately: **thecronstream@gmail.com**
 
 ---
 
-## Code of conduct
+## License
 
-- Be constructive in code reviews
-- This is a financial protocol — correctness and security take priority over speed
-- All contributions are made under the Business Source License 1.1
+All contributions are made under the [MIT License](./LICENSE).

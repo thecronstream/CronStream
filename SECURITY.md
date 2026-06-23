@@ -1,78 +1,56 @@
 # Security Policy
 
-CronStream is a financial protocol. It custodies funds in smart contracts and
-signs on-chain payment authorizations off-chain. We take security seriously and
-appreciate responsible disclosure from the community.
+Cronstream is a financial protocol. Smart contracts handle yield distribution for institutional LP pools. We take security seriously and appreciate responsible disclosure.
 
 ## Reporting a vulnerability
 
-**Do not open a public GitHub issue, pull request, or discussion for a security
-vulnerability.** Public disclosure before a fix puts user funds at risk.
+**Do not open a public GitHub issue for a security vulnerability.** Public disclosure before a fix puts LP funds at risk.
 
-Report privately to the maintainers:
+Report privately:
 
 - **Email:** thecronstream@gmail.com
 - **Telegram:** [@AbrahamNA_VIG](https://t.me/AbrahamNA_VIG)
 
 Please include:
 
-- A description of the vulnerability and its impact
-- Steps to reproduce (proof-of-concept, transaction hashes, or code references)
-- Affected component(s) and version/commit
-- Any suggested remediation
-
-If you can, encrypt sensitive details or share a minimal private repro rather
-than posting exploit code anywhere public.
+- Description of the vulnerability and its impact
+- Steps to reproduce (proof-of-concept or code references)
+- Affected component and commit
+- Suggested remediation if available
 
 ## What to expect
 
-- **Acknowledgement** within 72 hours of your report.
-- **Triage and severity assessment** shortly after, with a planned remediation
-  timeline communicated to you.
-- **Coordinated disclosure.** We will work with you on timing and credit you in
-  the fix notes unless you prefer to remain anonymous.
-
-Please give us a reasonable window to remediate before any public disclosure.
+- **Acknowledgement** within 72 hours
+- **Triage and severity assessment** with a remediation timeline communicated to you
+- **Coordinated disclosure** — we will credit you in fix notes unless you prefer anonymity
 
 ## Scope
 
 In scope:
 
-- **Smart contracts** (`contracts/`): fund custody, stream accounting, voucher
-  verification, nonce/replay protection, access control, reclaim/cancel logic.
-- **Agent node** (`agent-node/`): EIP-712 voucher signing, milestone
-  verification, webhook signature validation, API authentication, rate limiting,
-  credential encryption, and the public x402 API.
-- **Frontend** (`frontend/`): issues that can lead to loss of funds, signature
-  phishing, or auth bypass.
+- **Hook contract** (`contracts/src/CronstreamHook.sol`): flash accounting correctness, delta settlement, LP ownership matrix manipulation, reentrancy via transient storage, keeper reimbursement calculation, inline swap MEV exposure
+- **Transient accounting library** (`contracts/src/libraries/TransientAccounting.sol`): TSTORE/TLOAD slot collisions, incorrect slot isolation
+- **Keeper script** (`scripts/Keeper.ts`): threshold manipulation, front-running vectors
 
 Examples of high-value reports:
 
-- Signing or submitting an extension voucher without genuine verified work
-- Replay or nonce reuse against the router contract
-- Reclaiming or withdrawing funds the caller is not entitled to
-- Webhook signature bypass that lets an attacker forge verification events
-- Leakage of stored OAuth tokens / API keys, or encryption weaknesses
-- Authentication or rate-limit bypass on the agent API
+- Draining LP yield to an unauthorized address
+- Manipulating the LP ownership matrix to receive disproportionate yield
+- Bypassing the reentrancy guard via transient storage
+- Settling PoolManager deltas incorrectly, leaving funds stranded
+- Keeper reimbursement exceeding the yield pool balance
 
 ## Out of scope
 
-- Vulnerabilities in third-party dependencies already tracked by Dependabot
-  (please still report if you have a working exploit against CronStream).
-- Spam, automated scanner output, missing best-practice headers with no
-  demonstrable impact, or social-engineering of maintainers.
-- Issues requiring a compromised user device or a malicious privileged operator.
-- Testnet-only griefing with no mainnet impact.
+- Vulnerabilities in third-party dependencies tracked by Dependabot
+- Missing best-practice headers with no demonstrable fund impact
+- Testnet-only griefing with no mainnet impact
+- Issues requiring a compromised user device or malicious privileged operator
 
 ## Safe harbor
 
-We support good-faith security research. If you make a genuine effort to follow
-this policy (avoid privacy violations, data destruction, and service
-degradation, and only test against assets you control or testnets), we will not
-pursue or support legal action against you for your research.
+Good-faith security research following this policy will not result in legal action. Test only against assets you control or testnets.
 
-## A note on the license
+## License
 
-CronStream is released under the [Business Source License 1.1](./LICENSE). The
-security of the protocol is a shared interest regardless of license terms, and
-responsible disclosure is always welcome.
+Cronstream is released under the [MIT License](./LICENSE).
