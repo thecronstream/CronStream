@@ -1,1 +1,4 @@
 .claude
+.agents/
+skills-lock.json
+*.Zone.Identifier
