@@ -1,35 +1,32 @@
-# CronStream
+# Cronstream Protocol
 
-**Autonomous milestone-gated B2B token streaming protocol.**
+**Uniswap v4 hook for automated yield distribution on RWA and rebasing stablecoin pools.**
 
-Money flows to contractors only after an off-chain agent verifies real work — a merged pull request, a closed Jira ticket, an approved Figma design. No verified deliverable means no payment. The stream freezes automatically.
+When yield-bearing assets like USDY, USDM, or BUIDL enter a standard AMM pool, their native dividend and rebase distribution mechanisms break. Cronstream intercepts that stagnant yield and pushes it directly to liquidity providers' wallets — atomically, without custody, and with zero protocol fee.
 
-[![App](https://img.shields.io/badge/App-cronstream.xyz-00D4AA?style=flat-square)](https://cronstream.xyz)
 [![Docs](https://img.shields.io/badge/Docs-docs.cronstream.xyz-00D4AA?style=flat-square)](https://docs.cronstream.xyz)
 [![X](https://img.shields.io/badge/X-@cronstream-00D4AA?style=flat-square)](https://x.com/cronstream)
-[![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue?style=flat-square)](https://spdx.org/licenses/BUSL-1.1.html)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](https://opensource.org/licenses/MIT)
 
-> Built for the Arbitrum Open House Buildathon — Overall & Agentic Tracks.
+> Built for the Atrium Academy Uniswap Hook Incubator (UHI) cohort.
 
 ---
 
 ## How it works
 
 ```
-Company deposits budget → stream opens LOCKED
+LP deposits RWA pair → Hook indexes LP share weight
         │
-Contractor completes work
+RWA rebase / swap fees → yield surplus accumulates in PoolManager
         │
-Agent verifies (GitHub · Jira · Bitbucket · Figma)
+Off-chain keeper monitors pool state via JSON-RPC
         │
-Agent signs EIP-712 extension voucher
+Surplus crosses $1,000 threshold → keeper calls distributeYield()
         │
-Stream window opens → contractor earns per second
-        │
-Next period: stream re-locks. Agent verifies again.
+Atomic flash-accounting: pull surplus → reimburse keeper gas inline → push yield to all LP wallets
 ```
 
-No deliverable verified → agent stops signing → stream expires → company reclaims unearned funds. No dispute, no manual cancel.
+Zero custody. Zero protocol fee. Keeper reimbursed entirely from yield in the same block.
 
 ---
 
@@ -38,31 +35,30 @@ No deliverable verified → agent stops signing → stream expires → company r
 ```
 cronstream/
 ├── contracts/        Solidity smart contracts (Foundry)
-│   ├── src/          CronStreamRouter.sol, ICronStream.sol
-│   ├── test/         108 tests · 99.2% line coverage
-│   └── script/       Deploy scripts (Arbitrum + Robinhood Chain)
+│   ├── src/          CronstreamHook.sol, libraries/TransientAccounting.sol
+│   ├── test/         Cronstream.t.sol — mock RWA yield + keeper simulation
+│   └── script/       Deploy scripts (Base · Arbitrum · Unichain)
 │
-├── agent-node/       Autonomous off-chain agent (Express.js)
-│   └── src/          Verification, EIP-712 signing, x402 public API
-│
-└── frontend/         React app (Vite + Wagmi + RainbowKit)
-    └── src/          Company + contractor dashboards, stream lifecycle UI
+└── frontend/         Protocol placeholder page (React · Vite)
 ```
+
+> Previous product (B2B milestone-gated payment streaming) is preserved at tag `v1-payment-protocol` and branch `legacy-v1-payment`.
 
 ---
 
-## Deployed contracts
+## Core design invariants
 
-| Network | Chain ID | Address |
-|---|---|---|
-| Arbitrum Sepolia | `421614` | `0x5A141097BAF8D88f665217817A1f89e1663f0C16` |
-| Robinhood Chain | `46630` | `0x12B1c71A60CBC3Fdd44D3D974546D2751feC04eD` |
+| Invariant | Specification |
+|---|---|
+| Zero custody | Hook never holds principal LP funds — all liquidity stays in `PoolManager` |
+| Gas invariance | Keeper reimbursed in native ETH within the same transaction block |
+| Permissionless | `distributeYield()` is a fully public entrypoint — no access control |
+| Zero protocol fee | 0% on distributed yield — funded via ecosystem grants |
+| Cancun-native | EIP-1153 transient storage (`TSTORE`/`TLOAD`) throughout |
 
 ---
 
 ## Quick start
-
-### Contracts
 
 ```bash
 cd contracts
@@ -71,76 +67,24 @@ forge build
 forge test
 ```
 
-### Agent node
-
-```bash
-cd agent-node
-npm install
-cp .env.example .env   # fill in your keys
-npm run dev
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev            # http://localhost:5173
-```
-
----
-
-## Public API
-
-The agent node exposes a pay-per-call public API using the [x402 protocol](https://x402.org). No account needed — any wallet can pay and call.
-
-```
-GET  /api/public/info                      Free   — pricing + usage
-GET  /api/public/stream/:id               $0.01  — stream state
-GET  /api/public/balance/:id              $0.01  — live withdrawable balance
-GET  /api/public/streams/company/:address $0.05  — all streams by a company
-GET  /api/public/streams/contractor/:addr $0.05  — all streams for a contractor
-POST /api/public/verify-milestone         $0.10  — verify work + signed voucher
-```
-
-Full docs: [docs.cronstream.xyz](https://docs.cronstream.xyz)
-
 ---
 
 ## Tech stack
 
 | Layer | Stack |
 |---|---|
-| Smart contracts | Solidity · Foundry · EIP-712 |
-| Agent node | Node.js · Express · ethers.js · x402 |
-| Frontend | React · Vite · Wagmi · RainbowKit · Tailwind CSS |
-| Database | Turso (libSQL) |
-| Chains | Arbitrum Sepolia · Robinhood Chain (Orbit) |
-
----
-
-## Contract highlights
-
-- **Locked-start model** — stream born expired, contractor earns $0 until agent verifies period 1
-- **EIP-712 extension vouchers** — nonce + expiry, replay-proof and time-bounded
-- **Gap time protection** — dead time between expiry and re-extension never counted as earned
-- **`reclaimUnearned()`** — company recovers full unspent budget at any expiry
-- **108 tests · 99.2% line coverage · 0 failures**
+| Smart contracts | Solidity 0.8.26 · Foundry · Uniswap v4-core · v4-periphery |
+| Hook callbacks | afterAddLiquidity · afterRemoveLiquidity · afterSwap · afterDonate |
+| Storage | EIP-1153 transient storage for intra-transaction accounting |
+| Keeper | TypeScript · viem · JSON-RPC event subscription |
+| Target networks | Base · Arbitrum One · Unichain |
 
 ---
 
 ## Links
 
-- **App:** https://cronstream.xyz
 - **Docs:** https://docs.cronstream.xyz
 - **X:** https://x.com/cronstream
-- **Arbitrum Sepolia:** https://sepolia.arbiscan.io/address/0x5A141097BAF8D88f665217817A1f89e1663f0C16
-
----
-
-## License
-
-Business Source License 1.1
 
 ---
 
